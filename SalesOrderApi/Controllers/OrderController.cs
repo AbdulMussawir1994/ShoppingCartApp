@@ -18,12 +18,12 @@ namespace SalesOrderApi.Controllers
             _orderService = orderService;
         }
 
-        //[HttpPost("confirm")]
-        //public async Task<IActionResult> ConfirmOrder()
-        //{
-        //    var result = await _consumerService.ConfirmOrderAsync();
-        //    return Ok(result);
-        //}
+        [HttpPost("Confirm/{OrderId}")]
+        public async Task<IActionResult> ConfirmOrder(int OrderId)
+        {
+            var result = await _orderService.ConfirmOrderByIdInQueueAsync(OrderId);
+            return Ok(result);
+        }
 
         [HttpGet("List")]
         public async Task<ActionResult> GetAll(CancellationToken ctx)
