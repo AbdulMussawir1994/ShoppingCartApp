@@ -1,6 +1,7 @@
 ﻿using Mapster;
 using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Exceptions;
 using SalesOrderApi.DbContextClass;
 using SalesOrderApi.Dtos;
 using SalesOrderApi.Dtos.Product;
@@ -47,52 +48,82 @@ namespace SalesOrderApi.Repository.OrderRepository
                 : MobileResponse<GetOrderDto>.Success(order.Adapt<GetOrderDto>(), "Order Fetched");
         }
 
-        public async Task<MobileResponse<GetOrderDto>> CreateAsync(CreateOrderDto model, CancellationToken ctx)
+        public async Task<MobileResponse<OrderMessageDto>> CreateAsync(CreateOrderDto model, CancellationToken ctx)
         {
+            var userId = _contextUser?.UserId ?? "1";
+            var consumer = _contextUser?.Email ?? "Not Found";
+
+            // 🔄 Map incoming DTO to entity early
             var order = model.Adapt<Order>();
-
-            order.UserId = _contextUser?.UserId ?? "1";
+            order.UserId = userId;
             order.Status = "Pending";
-            order.Consumer = _contextUser?.Email ?? "Not Found";
+            order.Consumer = consumer;
 
+            // ✅ Fetch product using HttpClient
             var client = _httpClientFactory.CreateClient("ProductApi");
-            var response = await client.GetAsync($"GetProductName/{model.ProductId}", ctx);
+            using var response = await client.GetAsync($"GetProductName/{model.ProductId}", ctx);
 
             if (!response.IsSuccessStatusCode)
-                return MobileResponse<GetOrderDto>.Fail("Failed to fetch product details.");
+                return MobileResponse<OrderMessageDto>.Fail("Failed to fetch product details.", "400");
 
-            var content = await response.Content.ReadAsStringAsync(ctx);
-            var product = JsonSerializer.Deserialize<MobileResponse<ProductDto>>(content, new JsonSerializerOptions
+            await using var contentStream = await response.Content.ReadAsStreamAsync(ctx);
+            var productResponse = await JsonSerializer.DeserializeAsync<MobileResponse<ProductDto>>(contentStream, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
-            })?.Data;
+            }, ctx);
 
-            if (product is null)
-                return MobileResponse<GetOrderDto>.Fail("Product data was empty.");
+            if (productResponse?.Data is not { } product)
+                return MobileResponse<OrderMessageDto>.Fail("Product data was empty.", "404");
 
+            // ✅ Assign product name
             order.ProductName = product.ProductName;
 
+            // ✅ Save Order first so OrderId is generated
             await _db.Orders.AddAsync(order, ctx);
             var saved = await _db.SaveChangesAsync(ctx);
 
-            if (saved > 0)
+            if (saved == 0)
+                return MobileResponse<OrderMessageDto>.Fail("Order creation failed.");
+
+            // ✅ Now insert ConfirmOrder with correct OrderId
+            var confirmOrder = new ConfirmOrder
             {
-                _rabbitMqService.PublishMessage("OrderQueue", new OrderMessageDto
-                {
-                    OrderId = order.OrderId,
-                    ProductId = order.ProductId,
-                    UserId = order.UserId,
-                    ProductName = order.ProductName,
-                    Consumer = order.Consumer,
-                    CreatedDate = order.CreatedDate,
-                    Status = order.Status,
-                    TotalOrders = order.TotalOrders,
-                });
+                OrderId = order.OrderId,
+                UserId = order.UserId,
+                CreatedDate = DateTime.UtcNow
+            };
 
-                return MobileResponse<GetOrderDto>.Success(order.Adapt<GetOrderDto>(), "Order Created");
-            }
+            await _db.ConfirmOrders.AddAsync(confirmOrder, ctx);
+            await _db.SaveChangesAsync(ctx);
 
-            return MobileResponse<GetOrderDto>.Fail("Creation Failed");
+            // ✅ Publish message to RabbitMQ
+            var rabbitMqOrder = new OrderMessageDto
+            {
+                OrderId = order.OrderId,
+                ProductId = order.ProductId,
+                UserId = userId,
+                ProductName = product.ProductName,
+                Consumer = consumer,
+                CreatedDate = order.CreatedDate,
+                Status = order.Status,
+                TotalOrders = order.TotalOrders,
+            };
+
+            _rabbitMqService.PublishMessage("OrderQueue", rabbitMqOrder);
+
+            //_rabbitMqService.PublishMessage("OrderQueue", new OrderMessageDto
+            //{
+            //    OrderId = order.OrderId,
+            //    ProductId = order.ProductId,
+            //    UserId = userId,
+            //    ProductName = product.ProductName,
+            //    Consumer = consumer,
+            //    CreatedDate = order.CreatedDate,
+            //    Status = order.Status,
+            //    TotalOrders = order.TotalOrders,
+            //});
+
+            return MobileResponse<OrderMessageDto>.Success(rabbitMqOrder, "Order Created and Publish Message in to Confirmation Order");
         }
 
         public async Task<MobileResponse<GetOrderDto>> UpdateAsync(int id, CreateOrderDto model, CancellationToken ctx)
@@ -126,116 +157,102 @@ namespace SalesOrderApi.Repository.OrderRepository
 
         public async Task<string> ConfirmOrderByIdInQueueAsync(int OrderId)
         {
-            var factory = new ConnectionFactory
+            var (connection, channel) = CreateRabbitMqChannel();
+            using (connection)
+            using (channel)
             {
-                HostName = _configuration["RabbitMQ:Host"],
-                Port = int.Parse(_configuration["RabbitMQ:Port"]),
-                UserName = _configuration["RabbitMQ:Username"],
-                Password = _configuration["RabbitMQ:Password"]
-            };
+                const string queueName = "OrderQueue";
+                channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false);
+                channel.BasicQos(0, 1, false);
 
-            using var connection = factory.CreateConnection();
-            using var channel = connection.CreateModel();
+                var tempQueue = $"{queueName}-{Guid.NewGuid()}";
+                channel.QueueDeclare(tempQueue, durable: true, exclusive: false, autoDelete: true);
 
-            const string queueName = "OrderQueue";
-            channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false);
-            channel.BasicQos(0, 1, false);
-
-            var tempQueue = $"{queueName}_temp_{Guid.NewGuid()}";
-            channel.QueueDeclare(tempQueue, durable: true, exclusive: false, autoDelete: true);
-
-            bool found = false;
-
-            while (true)
-            {
-                var result = channel.BasicGet(queue: queueName, autoAck: false);
-                if (result == null) break;
-
-                var messageJson = Encoding.UTF8.GetString(result.Body.ToArray());
-
-                var orderMessage = JsonSerializer.Deserialize<OrderMessageDto>(messageJson, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-
-                if (orderMessage?.OrderId == OrderId)
-                {
-                    // ✅ Confirm the order via service
-                    var success = await ConfirmOrderByIdAsync(OrderId);
-                    if (success)
-                    {
-                        channel.BasicAck(result.DeliveryTag, false);
-                        found = true;
-                        break;
-                    }
-                    else
-                    {
-                        channel.BasicAck(result.DeliveryTag, false); // avoid stuck message
-                        return $"⚠️ Order {OrderId} found but confirmation failed.";
-                    }
-                }
-
-                // ❗ Push unmatched message to temp queue (requeue)
-                channel.BasicAck(result.DeliveryTag, false);
-                channel.BasicPublish(exchange: "", routingKey: tempQueue, body: result.Body);
-            }
-
-            // 🚚 Move temp queue messages back to original
-            while (true)
-            {
-                var tempResult = channel.BasicGet(queue: tempQueue, autoAck: false);
-                if (tempResult == null) break;
-                channel.BasicAck(tempResult.DeliveryTag, false);
-                channel.BasicPublish(exchange: "", routingKey: queueName, body: tempResult.Body);
-            }
-
-            return found
-                ? $"✅ Order {OrderId} confirmed and removed from '{queueName}'."
-                : $"❌ Order {OrderId} not found in '{queueName}'.";
-        }
-
-        public async Task<string> CleanupTempQueueAsync(string queueName)
-        {
-            var factory = new ConnectionFactory
-            {
-                HostName = _configuration["RabbitMQ:Host"],
-                Port = int.Parse(_configuration["RabbitMQ:Port"]),
-                UserName = _configuration["RabbitMQ:Username"],
-                Password = _configuration["RabbitMQ:Password"]
-            };
-
-            using var connection = factory.CreateConnection();
-            using var channel = connection.CreateModel();
-
-            try
-            {
-                uint removedCount = 0;
+                bool found = false;
 
                 while (true)
                 {
                     var result = channel.BasicGet(queue: queueName, autoAck: false);
-                    if (result == null)
-                        break;
+                    if (result == null) break;
 
+                    var messageJson = Encoding.UTF8.GetString(result.Body.ToArray());
+
+                    var orderMessage = JsonSerializer.Deserialize<OrderMessageDto>(messageJson, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                    if (orderMessage?.OrderId == OrderId)
+                    {
+                        // ✅ Confirm the order via service
+                        var success = await ConfirmOrderByIdAsync(OrderId, tempQueue);
+                        if (success)
+                        {
+                            channel.BasicAck(result.DeliveryTag, false);
+                            found = true;
+                            break;
+                        }
+                        else
+                        {
+                            channel.BasicAck(result.DeliveryTag, false); // avoid stuck message
+                            return $"⚠️ Order {OrderId} found but confirmation failed.";
+                        }
+                    }
+
+                    // ❗ Push unmatched message to temp queue (requeue)
                     channel.BasicAck(result.DeliveryTag, false);
-                    removedCount++;
+                    channel.BasicPublish(exchange: "", routingKey: tempQueue, body: result.Body);
                 }
 
-                return $"🧹 Cleaned up {removedCount} messages from queue '{queueName}'.";
-            }
-            catch (Exception ex)
-            {
-                return $"❌ Failed to clean up queue '{queueName}': {ex.Message}";
+                // 🚚 Move temp queue messages back to original
+                while (true)
+                {
+                    var tempResult = channel.BasicGet(queue: tempQueue, autoAck: false);
+                    if (tempResult == null) break;
+                    channel.BasicAck(tempResult.DeliveryTag, false);
+                    channel.BasicPublish(exchange: "", routingKey: queueName, body: tempResult.Body);
+                }
+
+                return found
+                    ? $"✅ Order {OrderId} confirmed and removed from '{queueName}'."
+                    : $"❌ Order {OrderId} not found in '{queueName}'.";
             }
         }
 
-        private async Task<bool> ConfirmOrderByIdAsync(int orderId)
+        public async Task<string> UpdateConfirmOrderDetails(string queueName)
+        {
+            try
+            {
+                var (connection, channel) = CreateRabbitMqChannel();
+
+                using (connection)
+                using (channel)
+                {
+                    var result = channel.QueueDeclarePassive(queueName); // Throws if queue doesn't exist
+                    channel.QueueDelete(queueName);
+                    return $"✅ Queue '{queueName}' (with {result.MessageCount} messages) deleted.";
+
+
+                    // 🧹 Delete the queue — this automatically removes all messages
+                    // channel.QueueDelete(queue: queueName, ifUnused: false, ifEmpty: false);
+                    // return $"✅ Queue '{queueName}' deleted successfully.";
+                }
+            }
+            catch (OperationInterruptedException)
+            {
+                return $"⚠️ Queue '{queueName}' does not exist.";
+            }
+        }
+
+        private async Task<bool> ConfirmOrderByIdAsync(int orderId, string queueName)
         {
             var order = await _db.Orders.FirstOrDefaultAsync(x => x.OrderId == orderId);
-            if (order == null || order.Status == "Confirmed") return false;
+
+            if (order is null)
+                return false;
 
             order.Status = "Confirmed";
-            //  order.ConfirmedDate = DateTime.UtcNow;
+            order.Queue = queueName;
 
             _db.Orders.Update(order);
             return await _db.SaveChangesAsync() > 0;

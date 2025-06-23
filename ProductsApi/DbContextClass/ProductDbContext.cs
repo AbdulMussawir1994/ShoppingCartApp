@@ -26,6 +26,12 @@ namespace ProductsApi.DbContextClass
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<Product>()
+                    .HasIndex(p => p.ProductId)
+                    .HasDatabaseName("IX_Product_ProductId")
+                    .IsUnique(false); // Set to true if ProductId is unique
+
+
             modelBuilder.Entity<Product>(entity =>
             {
                 entity.ToTable("Product");

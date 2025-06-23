@@ -19,9 +19,16 @@ namespace SalesOrderApi.Controllers
         }
 
         [HttpPost("Confirm/{OrderId}")]
-        public async Task<IActionResult> ConfirmOrder(int OrderId)
+        public async Task<ActionResult> ConfirmOrder(int OrderId)
         {
             var result = await _orderService.ConfirmOrderByIdInQueueAsync(OrderId);
+            return Ok(result);
+        }
+
+        [HttpPost("ConfirmOrder/{queueName}")]
+        public async Task<IActionResult> ConfirmOrder(string queueName)
+        {
+            var result = await _orderService.UpdateConfirmOrderDetails(queueName);
             return Ok(result);
         }
 

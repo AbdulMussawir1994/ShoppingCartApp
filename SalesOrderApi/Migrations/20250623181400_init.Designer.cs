@@ -12,7 +12,7 @@ using SalesOrderApi.DbContextClass;
 namespace SalesOrderApi.Migrations
 {
     [DbContext(typeof(OrderDbContext))]
-    [Migration("20250623092517_init")]
+    [Migration("20250623181400_init")]
     partial class init
     {
         /// <inheritdoc />
@@ -24,6 +24,35 @@ namespace SalesOrderApi.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
             MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
+
+            modelBuilder.Entity("SalesOrderApi.Model.ConfirmOrder", b =>
+                {
+                    b.Property<int>("ConfirmOrderId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("ConfirmOrderId"));
+
+                    b.Property<DateTime>("ConfirmedOrder")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("OrderId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.HasKey("ConfirmOrderId");
+
+                    b.HasIndex("OrderId");
+
+                    b.ToTable("ConfirmOrders");
+                });
 
             modelBuilder.Entity("SalesOrderApi.Model.Order", b =>
                 {
@@ -54,6 +83,10 @@ namespace SalesOrderApi.Migrations
                         .IsUnicode(true)
                         .HasColumnType("varchar(30)");
 
+                    b.Property<string>("Queue")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("longtext");
@@ -72,6 +105,22 @@ namespace SalesOrderApi.Migrations
                         .HasDatabaseName("IDX_OrderId)");
 
                     b.ToTable("Order", (string)null);
+                });
+
+            modelBuilder.Entity("SalesOrderApi.Model.ConfirmOrder", b =>
+                {
+                    b.HasOne("SalesOrderApi.Model.Order", "Orders")
+                        .WithMany("ConfirmOrders")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Orders");
+                });
+
+            modelBuilder.Entity("SalesOrderApi.Model.Order", b =>
+                {
+                    b.Navigation("ConfirmOrders");
                 });
 #pragma warning restore 612, 618
         }

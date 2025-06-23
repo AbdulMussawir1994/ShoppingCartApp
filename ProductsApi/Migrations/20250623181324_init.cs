@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace ProductsApi.Migrations
 {
     /// <inheritdoc />
-    public partial class Init : Migration
+    public partial class init : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -30,6 +30,11 @@ namespace ProductsApi.Migrations
                 {
                     table.PrimaryKey("PK_Product", x => x.ProductId);
                 });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Product_ProductId",
+                table: "Product",
+                column: "ProductId");
         }
 
         /// <inheritdoc />

@@ -83,5 +83,6 @@ namespace SalesOrderApi.DbContextClass
         }
 
         public DbSet<Order> Orders => Set<Order>();
+        public DbSet<ConfirmOrder> ConfirmOrders => Set<ConfirmOrder>();
     }
 }

@@ -69,6 +69,9 @@ namespace ProductsApi.Migrations
 
                     b.HasKey("ProductId");
 
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("IX_Product_ProductId");
+
                     b.ToTable("Product", (string)null);
                 });
 #pragma warning restore 612, 618

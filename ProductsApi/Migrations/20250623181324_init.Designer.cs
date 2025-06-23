@@ -12,8 +12,8 @@ using ProductsApi.DbContextClass;
 namespace ProductsApi.Migrations
 {
     [DbContext(typeof(ProductDbContext))]
-    [Migration("20250623092449_Init")]
-    partial class Init
+    [Migration("20250623181324_init")]
+    partial class init
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -71,6 +71,9 @@ namespace ProductsApi.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("ProductId");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("IX_Product_ProductId");
 
                     b.ToTable("Product", (string)null);
                 });
