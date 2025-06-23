@@ -5,9 +5,10 @@ using SalesOrderApi.Repository.OrderRepository;
 
 namespace SalesOrderApi.Controllers
 {
-    [Route("api/[controller]")]
     [ApiController]
     [Authorize]
+    [ApiVersion("2.0")]
+    [Route("api/v{version:apiVersion}/[controller]")]
     public class OrderController : ControllerBase
     {
         private readonly IOrderService _orderService;

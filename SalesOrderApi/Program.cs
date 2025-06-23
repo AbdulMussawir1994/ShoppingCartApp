@@ -1,9 +1,13 @@
 ﻿using Mapster;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ApiExplorer;
+using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using SalesOrderApi.DbContextClass;
 using SalesOrderApi.Helpers;
 using SalesOrderApi.Repository.OrderRepository;
+using SalesOrderApi.Repository.RabbitMqProducer;
 using SalesOrderApi.Repository.UserContext;
 using SalesOrderApi.Utilities;
 using System.Reflection;
@@ -58,29 +62,53 @@ builder.Services.AddCors(options =>
     });
 });
 
-// ✅ Register Application Services
-builder.Services.AddScoped<IOrderService, OrderService>();
-builder.Services.AddScoped<IUserService, UserService>();
-//builder.Services.AddScoped<IRabbitMqConsumerService, RabbitMqConsumerService>();
+//🔄 API Versioning
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(2, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+    options.ApiVersionReader = new UrlSegmentApiVersionReader(); // Important!
+});
 
-// Add Hosted Service for RabbitMQ Consumer
-//builder.Services.AddHostedService<OrderConsumer>();
+builder.Services.AddVersionedApiExplorer(options =>
+{
+    options.GroupNameFormat = "'v'VVV";
+    options.SubstituteApiVersionInUrl = true;
+});
+
+// ✅ Register Application Services
+builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IOrderService, OrderService>();
+
+// ✅ Add Services for RabbitMQ Producer
+builder.Services.AddSingleton<IRabbitMqService, RabbitMqService>();
+builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMQ"));
 
 // ✅ Mapster Config for DTO Mapping
 TypeAdapterConfig.GlobalSettings.Scan(Assembly.GetExecutingAssembly());
 builder.Services.AddSingleton(new MapsterProfile());
 
-
 //builder.Services.AddHttpClient(); // Required for IHttpClientFactory
+builder.Services.AddHttpContextAccessor();
+
 builder.Services.AddHttpClient("ProductApi", client =>
 {
-    client.BaseAddress = new Uri("https://api.example.com/"); // ⬅️ Change this to your actual API base URL
+    client.BaseAddress = new Uri("https://localhost:7124/api/v2/Product/");
     client.DefaultRequestHeaders.Add("Accept", "application/json");
-    // Optionally add API key headers here if needed:
-    // client.DefaultRequestHeaders.Add("Authorization", "Bearer your_api_key");
+})
+.ConfigureHttpClient((sp, client) =>
+{
+    var httpContext = sp.GetRequiredService<IHttpContextAccessor>()?.HttpContext;
+    var token = httpContext?.Request?.Headers["Authorization"].FirstOrDefault();
+    if (!string.IsNullOrWhiteSpace(token))
+    {
+        if (token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            token = token.Substring(7);
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+    }
 });
-
-builder.Services.AddHttpContextAccessor();
 
 // JWT Authentication & Authorization
 builder.AddAppAuthentication();
@@ -92,33 +120,45 @@ builder.Services.AddEndpointsApiExplorer();
 // 🧭 Swagger Configuration with JWT Bearer
 builder.Services.AddSwaggerGen(options =>
 {
-    // JWT Bearer auth setup
+    var provider = builder.Services.BuildServiceProvider()
+                      .GetRequiredService<IApiVersionDescriptionProvider>();
+
+    foreach (var description in provider.ApiVersionDescriptions)
+    {
+        options.SwaggerDoc(description.GroupName, new OpenApiInfo
+        {
+            Title = $"Sale Order API - {description.GroupName.ToUpperInvariant()}",
+            Version = description.GroupName
+        });
+    }
+
+    // 🔐 JWT setup (already good in your code)
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Description = "Enter your JWT token below with **Bearer** prefix.\r\nExample: Bearer eyJhbGciOi...",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.Http, // Use Http instead of ApiKey for better support
+        Type = SecuritySchemeType.Http,
         Scheme = "Bearer",
         BearerFormat = "JWT"
     });
 
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
-            {
-               {
+    {
+        {
             new OpenApiSecurityScheme
-                  {
-                      Reference = new OpenApiReference
-                       {
-                             Type = ReferenceType.SecurityScheme,
-                              Id = "Bearer"
-                       }
-                   },
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
             Array.Empty<string>()
-               }
-            });
+        }
+    });
 
-    // Optional: Add XML comment support for controller documentation
+    // XML comments (optional)
     var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
     var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
     if (File.Exists(xmlPath))
@@ -134,27 +174,23 @@ builder.Services.AddResponseCaching();
 
 var app = builder.Build();
 
-// ✅ Set OrderId seed to start from 1000
+// ✅ Set OrderId seed to start from 1000 for MySQL
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
 
-    // If using migrations:
+    // Optional: Apply migrations if using EF migrations
     // await dbContext.Database.MigrateAsync();
 
-    // Optional safety check
+    // ✅ Only reseed if table is empty
     if (!dbContext.Orders.Any())
     {
-        await dbContext.Database.ExecuteSqlRawAsync("DBCC CHECKIDENT ('OrderDetails', RESEED, 999)");
+        await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE `Order` AUTO_INCREMENT = 1000;");
     }
 }
 
 // Swagger for development only
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.ConfigureSwagger();
 
 app.UseHttpsRedirection();
 

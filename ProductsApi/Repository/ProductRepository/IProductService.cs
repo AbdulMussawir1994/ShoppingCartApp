@@ -11,4 +11,5 @@ public interface IProductService
     Task<MobileResponse<GetProductDto>> CreateAsync(CreateProductDto model, CancellationToken ctx);
     Task<MobileResponse<GetProductDto>> UpdateAsync(string id, CreateProductDto model, CancellationToken ctx);
     Task<MobileResponse<bool>> DeleteAsync(string id, CancellationToken ctx);
+    Task<MobileResponse<ProductDto>> GetProductNameAsync(string Id, CancellationToken ctx);
 }

@@ -64,7 +64,7 @@ public class ProductService : IProductService
             var result = await _db.SaveChangesAsync(ctx);
 
             return result > 0
-                ? MobileResponse<GetProductDto>.Success(product.Adapt<GetProductDto>(), "Product Created and message sent to RabbitMQ.")
+                ? MobileResponse<GetProductDto>.Success(product.Adapt<GetProductDto>(), "Product Created Successfully.")
                 : MobileResponse<GetProductDto>.Fail("Failed to Create Product");
         }
         catch (Exception ex)
@@ -134,6 +134,31 @@ public class ProductService : IProductService
         catch (Exception ex)
         {
             return MobileResponse<IEnumerable<GetProductDto>>.Fail($"An error Occured: {ex.Message}", "400");
+        }
+    }
+
+    public async Task<MobileResponse<ProductDto>> GetProductNameAsync(string Id, CancellationToken ctx)
+    {
+        try
+        {
+            var product = await _db.Products
+                .AsNoTracking()
+                .Where(x => x.ProductId == Id)
+                .Select(x => new ProductDto
+                {
+                    Id = x.ProductId,
+                    ProductName = x.ProductName
+                })
+                .FirstOrDefaultAsync(ctx);
+
+            if (product is not ProductDto validProduct)
+                return MobileResponse<ProductDto>.Fail("Product Not Found", "404");
+
+            return MobileResponse<ProductDto>.Success(validProduct, "Product Fetched Successfully", "200");
+        }
+        catch (Exception ex)
+        {
+            return MobileResponse<ProductDto>.Fail($"An error occurred: {ex.Message}", "500");
         }
     }
 }

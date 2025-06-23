@@ -18,4 +18,18 @@ public class UserService : IUserService
         .FindAll("role")
         .Select(r => r.Value)
         .ToList() ?? new();
+
+    public string? AccessToken
+    {
+        get
+        {
+            var authHeader = _context.HttpContext?.Request?.Headers["Authorization"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(authHeader)) return null;
+
+            // Remove 'Bearer ' prefix if it exists
+            return authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? authHeader.Substring("Bearer ".Length)
+                : authHeader;
+        }
+    }
 }

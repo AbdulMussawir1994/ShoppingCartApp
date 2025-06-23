@@ -1,4 +1,7 @@
 ﻿using Mapster;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ApiExplorer;
+using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using ProductsApi.DbContextClass;
@@ -67,39 +70,66 @@ builder.Services.AddHttpContextAccessor();
 builder.AddAppAuthentication();
 builder.Services.AddAuthorization();
 
+//🔄 API Versioning
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(2, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+    options.ApiVersionReader = new UrlSegmentApiVersionReader(); // Important!
+});
+
+builder.Services.AddVersionedApiExplorer(options =>
+{
+    options.GroupNameFormat = "'v'VVV";
+    options.SubstituteApiVersionInUrl = true;
+});
+
 // ✅ Swagger Configuration with JWT Support
 builder.Services.AddEndpointsApiExplorer();
 
 // 🧭 Swagger Configuration with JWT Bearer
 builder.Services.AddSwaggerGen(options =>
 {
-    // JWT Bearer auth setup
+    var provider = builder.Services.BuildServiceProvider()
+                      .GetRequiredService<IApiVersionDescriptionProvider>();
+
+    foreach (var description in provider.ApiVersionDescriptions)
+    {
+        options.SwaggerDoc(description.GroupName, new OpenApiInfo
+        {
+            Title = $"Product API - {description.GroupName.ToUpperInvariant()}",
+            Version = description.GroupName
+        });
+    }
+
+    // 🔐 JWT setup (already good in your code)
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Description = "Enter your JWT token below with **Bearer** prefix.\r\nExample: Bearer eyJhbGciOi...",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.Http, // Use Http instead of ApiKey for better support
+        Type = SecuritySchemeType.Http,
         Scheme = "Bearer",
         BearerFormat = "JWT"
     });
 
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
-            {
-               {
+    {
+        {
             new OpenApiSecurityScheme
-                  {
-                      Reference = new OpenApiReference
-                       {
-                             Type = ReferenceType.SecurityScheme,
-                              Id = "Bearer"
-                       }
-                   },
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
             Array.Empty<string>()
-               }
-            });
+        }
+    });
 
-    // Optional: Add XML comment support for controller documentation
+    // XML comments (optional)
     var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
     var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
     if (File.Exists(xmlPath))
@@ -115,11 +145,21 @@ builder.Services.AddResponseCaching();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+//using (var scope = app.Services.CreateScope())
+//{
+//    var dbContext = scope.ServiceProvider.GetRequiredService<ProductDbContext>();
+
+//    // If using migrations:
+//    // await dbContext.Database.MigrateAsync();
+
+//    // Optional safety check
+//    if (!dbContext.Products.Any())
+//    {
+//        await dbContext.Database.ExecuteSqlRawAsync("DBCC CHECKIDENT ('OrderDetails', RESEED, 999)");
+//    }
+//}
+
+app.ConfigureSwagger();
 
 app.UseHttpsRedirection();
 

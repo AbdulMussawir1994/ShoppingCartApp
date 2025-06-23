@@ -5,9 +5,10 @@ using ProductsApi.Repository.ProductRepository;
 
 namespace ProductsApi.Controllers
 {
-    [Route("api/[controller]")]
     [ApiController]
     [Authorize]
+    [ApiVersion("2.0")]
+    [Route("api/v{version:apiVersion}/[controller]")]
     public class ProductController : ControllerBase
     {
         private readonly IProductService _productService;
@@ -70,6 +71,16 @@ namespace ProductsApi.Controllers
                 return BadRequest("Product ID is required.");
 
             var response = await _productService.DeleteAsync(id, ctx);
+            return response.Status ? Ok(response) : NotFound(response);
+        }
+
+        [HttpGet("GetProductName/{Id}")]
+        public async Task<ActionResult> GetProductName(string Id, CancellationToken ctx)
+        {
+            if (string.IsNullOrWhiteSpace(Id))
+                return BadRequest("Product ID is required.");
+
+            var response = await _productService.GetProductNameAsync(Id, ctx);
             return response.Status ? Ok(response) : NotFound(response);
         }
     }

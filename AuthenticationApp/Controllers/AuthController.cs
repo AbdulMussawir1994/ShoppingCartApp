@@ -5,8 +5,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AuthenticationApp.Controllers
 {
-    [Route("api/[controller]")]
     [ApiController]
+    [ApiVersion("2.0")]
+    [Route("api/v{version:apiVersion}/[controller]")]
     public class AuthController : ControllerBase
     {
         private readonly IUserService _userService;

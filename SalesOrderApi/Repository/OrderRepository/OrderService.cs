@@ -2,9 +2,12 @@
 using Microsoft.EntityFrameworkCore;
 using SalesOrderApi.DbContextClass;
 using SalesOrderApi.Dtos;
+using SalesOrderApi.Dtos.Product;
 using SalesOrderApi.Model;
+using SalesOrderApi.Repository.RabbitMqProducer;
 using SalesOrderApi.Repository.UserContext;
 using SalesOrderApi.Utilities;
+using System.Text.Json;
 
 namespace SalesOrderApi.Repository.OrderRepository
 {
@@ -12,14 +15,14 @@ namespace SalesOrderApi.Repository.OrderRepository
     {
         private readonly OrderDbContext _db;
         private readonly IUserService _contextUser;
-        //private readonly IRabbitMqService _rabbitMqService;
+        private readonly IRabbitMqService _rabbitMqService;
         private readonly IHttpClientFactory _httpClientFactory;
 
-        public OrderService(OrderDbContext db, IUserService contextUser, IHttpClientFactory httpClientFactory)
+        public OrderService(OrderDbContext db, IUserService contextUser, IRabbitMqService rabbitMqService, IHttpClientFactory httpClientFactory)
         {
             _db = db;
             _contextUser = contextUser;
-            // _rabbitMqService = rabbitMqService;
+            _rabbitMqService = rabbitMqService;
             _httpClientFactory = httpClientFactory;
         }
 
@@ -43,34 +46,28 @@ namespace SalesOrderApi.Repository.OrderRepository
         {
             var order = model.Adapt<Order>();
 
-            var client = _httpClientFactory.CreateClient("ProductApi");
-
-            // Assuming the base URL is already set, only append relative path
-            var productResponse = await client.GetAsync($"products/{model.ProductId}", ctx);
-
-            if (!productResponse.IsSuccessStatusCode)
-            {
-                return MobileResponse<GetOrderDto>.Fail("Failed to fetch product details from external service.");
-            }
-
-            var productContent = await productResponse.Content.ReadAsStringAsync(ctx);
-            //var productData = JsonSerializer.Deserialize<ProductDto>(productContent, new JsonSerializerOptions
-            //{
-            //    PropertyNameCaseInsensitive = true
-            //});
-
-            //if (productData == null)
-            //{
-            //    return MobileResponse<GetOrderDto>.Fail("Product data was empty.");
-            //}
-
-            // ✅ Populate order with external data
             order.UserId = _contextUser?.UserId ?? "1";
             order.Status = "Pending";
-            //   order.ProductName = productData.ProductName;
             order.Consumer = _contextUser?.Email ?? "Not Found";
 
-            var rabbitMq = new OrderMessageDto
+            var client = _httpClientFactory.CreateClient("ProductApi");
+            var response = await client.GetAsync($"GetProductName/{model.ProductId}", ctx);
+
+            if (!response.IsSuccessStatusCode)
+                return MobileResponse<GetOrderDto>.Fail("Failed to fetch product details.");
+
+            var content = await response.Content.ReadAsStringAsync(ctx);
+            var product = JsonSerializer.Deserialize<MobileResponse<ProductDto>>(content, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            })?.Data;
+
+            if (product is null)
+                return MobileResponse<GetOrderDto>.Fail("Product data was empty.");
+
+            order.ProductName = product.ProductName;
+
+            _rabbitMqService.PublishMessage("OrderQueue", new OrderMessageDto
             {
                 OrderId = order.OrderId,
                 ProductId = order.ProductId,
@@ -80,38 +77,15 @@ namespace SalesOrderApi.Repository.OrderRepository
                 CreatedDate = order.CreatedDate,
                 Status = order.Status,
                 TotalOrders = order.TotalOrders,
-            };
-
-            //  _rabbitMqService.PublishMessage("OrderQueue", rabbitMq);
+            });
 
             await _db.Orders.AddAsync(order, ctx);
-            var result = await _db.SaveChangesAsync(ctx);
-            return result > 0
+            var saved = await _db.SaveChangesAsync(ctx);
+
+            return saved > 0
                 ? MobileResponse<GetOrderDto>.Success(order.Adapt<GetOrderDto>(), "Order Created")
                 : MobileResponse<GetOrderDto>.Fail("Creation Failed");
         }
-
-        //public async Task<MobileResponse<bool>> AutoCreateAsync(ProductDto model)
-        //{
-        //    var order = new OrderDetails
-        //    {
-        //        ProductId = model.ProductId,
-        //        ProductName = model.ProductName,
-        //        //   Stock = model.Quantity,
-        //        Consumer = model.Consumer ?? "Unknown Customer",
-        //        Status = "Confirmed",
-        //        CreatedDate = DateTime.UtcNow,
-        //        //   Price = model.ProductPrice,
-        //        UserId = model.User,
-        //    };
-
-        //    await _db.OrderDetails.AddAsync(order);
-        //    var result = await _db.SaveChangesAsync();
-
-        //    return result > 0
-        //        ? MobileResponse<bool>.Success(true, "Order Created")
-        //        : MobileResponse<bool>.Fail("Creation Failed");
-        //}
 
         public async Task<MobileResponse<GetOrderDto>> UpdateAsync(int id, CreateOrderDto model, CancellationToken ctx)
         {
