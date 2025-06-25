@@ -12,8 +12,8 @@ using ProductsApi.DbContextClass;
 namespace ProductsApi.Migrations
 {
     [DbContext(typeof(ProductDbContext))]
-    [Migration("20250623181324_init")]
-    partial class init
+    [Migration("20250625185743_Initital")]
+    partial class Initital
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

@@ -20,7 +20,7 @@ public class Order
     [Display(Name = "Order Status")]
     public string Status { get; set; } = string.Empty;
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
-    public string Queue { get; set; } = string.Empty;
+    //  public string Queue { get; set; } = string.Empty;
 
     public virtual ICollection<ConfirmOrder> ConfirmOrders { get; private set; } = new List<ConfirmOrder>();
 }

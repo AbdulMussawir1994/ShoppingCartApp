@@ -12,8 +12,8 @@ using SalesOrderApi.DbContextClass;
 namespace SalesOrderApi.Migrations
 {
     [DbContext(typeof(OrderDbContext))]
-    [Migration("20250623181400_init")]
-    partial class init
+    [Migration("20250625185811_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -82,10 +82,6 @@ namespace SalesOrderApi.Migrations
                         .HasMaxLength(30)
                         .IsUnicode(true)
                         .HasColumnType("varchar(30)");
-
-                    b.Property<string>("Queue")
-                        .IsRequired()
-                        .HasColumnType("longtext");
 
                     b.Property<string>("Status")
                         .IsRequired()

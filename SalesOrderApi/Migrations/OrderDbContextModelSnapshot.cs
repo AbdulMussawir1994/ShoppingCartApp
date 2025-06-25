@@ -80,10 +80,6 @@ namespace SalesOrderApi.Migrations
                         .IsUnicode(true)
                         .HasColumnType("varchar(30)");
 
-                    b.Property<string>("Queue")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("longtext");

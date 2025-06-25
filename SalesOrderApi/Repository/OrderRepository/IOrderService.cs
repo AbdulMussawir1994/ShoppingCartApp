@@ -1,11 +1,12 @@
 ﻿using SalesOrderApi.Dtos;
 using SalesOrderApi.Utilities;
+using SalesOrderApi.ViewModels;
 
 namespace SalesOrderApi.Repository.OrderRepository
 {
     public interface IOrderService
     {
-        Task<string> ConfirmOrderByIdInQueueAsync(int orderId);
+        Task<string> ConfirmOrderByIdInQueueAsync(ConfirmOrderViewModel model);
         Task<string> UpdateConfirmOrderDetails(string queueName);
         Task<MobileResponse<IEnumerable<GetOrderDto>>> GetAllAsync(CancellationToken ctx);
         Task<MobileResponse<GetOrderDto>> GetByIdAsync(int id, CancellationToken ctx);

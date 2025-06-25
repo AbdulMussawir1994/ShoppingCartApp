@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using SalesOrderApi.Dtos;
 using SalesOrderApi.Repository.OrderRepository;
+using SalesOrderApi.ViewModels;
 
 namespace SalesOrderApi.Controllers
 {
@@ -18,14 +19,14 @@ namespace SalesOrderApi.Controllers
             _orderService = orderService;
         }
 
-        [HttpPost("Confirm/{OrderId}")]
-        public async Task<ActionResult> ConfirmOrder(int OrderId)
+        [HttpPost("ConfirmOrder")]
+        public async Task<ActionResult> ConfirmOrder(ConfirmOrderViewModel model)
         {
-            var result = await _orderService.ConfirmOrderByIdInQueueAsync(OrderId);
+            var result = await _orderService.ConfirmOrderByIdInQueueAsync(model);
             return Ok(result);
         }
 
-        [HttpPost("ConfirmOrder/{queueName}")]
+        [HttpPost("ConfirmOrderWithQueue/{queueName}")]
         public async Task<IActionResult> ConfirmOrder(string queueName)
         {
             var result = await _orderService.UpdateConfirmOrderDetails(queueName);

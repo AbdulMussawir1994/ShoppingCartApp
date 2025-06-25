@@ -9,6 +9,7 @@ using SalesOrderApi.Model;
 using SalesOrderApi.Repository.RabbitMqProducer;
 using SalesOrderApi.Repository.UserContext;
 using SalesOrderApi.Utilities;
+using SalesOrderApi.ViewModels;
 using System.Text;
 using System.Text.Json;
 
@@ -155,7 +156,7 @@ namespace SalesOrderApi.Repository.OrderRepository
                 : MobileResponse<bool>.Fail("Delete Failed");
         }
 
-        public async Task<string> ConfirmOrderByIdInQueueAsync(int orderId)
+        public async Task<string> ConfirmOrderByIdInQueueAsync(ConfirmOrderViewModel model)
         {
             var (connection, channel) = CreateRabbitMqChannel();
             using (connection)
@@ -182,9 +183,9 @@ namespace SalesOrderApi.Repository.OrderRepository
                         PropertyNameCaseInsensitive = true
                     });
 
-                    if (orderMessage?.OrderId == orderId)
+                    if (orderMessage?.OrderId == model.OrderId)
                     {
-                        var confirmed = await ConfirmOrderByIdAsync(orderId);
+                        var confirmed = await ConfirmOrderByIdAsync(model.OrderId);
                         if (confirmed)
                         {
                             channel.BasicAck(result.DeliveryTag, false);
@@ -195,7 +196,7 @@ namespace SalesOrderApi.Repository.OrderRepository
                         {
                             // Prevent stuck message even on failure
                             channel.BasicAck(result.DeliveryTag, false);
-                            return $"⚠️ Order {orderId} found but confirmation failed.";
+                            return $"⚠️ Order {model.OrderId} found but confirmation failed.";
                         }
                     }
 
@@ -211,8 +212,8 @@ namespace SalesOrderApi.Repository.OrderRepository
                 }
 
                 return found
-                    ? $"✅ Order {orderId} confirmed and removed from '{queueName}'."
-                    : $"❌ Order {orderId} not found in '{queueName}'.";
+                    ? $"✅ Order {model.OrderId} confirmed and removed from '{queueName}'."
+                    : $"❌ Order {model.OrderId} not found in '{queueName}'.";
             }
         }
 
