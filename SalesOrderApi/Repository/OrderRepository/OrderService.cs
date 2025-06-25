@@ -155,38 +155,37 @@ namespace SalesOrderApi.Repository.OrderRepository
                 : MobileResponse<bool>.Fail("Delete Failed");
         }
 
-        public async Task<string> ConfirmOrderByIdInQueueAsync(int OrderId)
+        public async Task<string> ConfirmOrderByIdInQueueAsync(int orderId)
         {
             var (connection, channel) = CreateRabbitMqChannel();
             using (connection)
             using (channel)
             {
                 const string queueName = "OrderQueue";
+
+                // Ensure queue exists
                 channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false);
                 channel.BasicQos(0, 1, false);
 
-                var tempQueue = $"{queueName}-{Guid.NewGuid()}";
-                channel.QueueDeclare(tempQueue, durable: true, exclusive: false, autoDelete: true);
-
+                var buffer = new List<ReadOnlyMemory<byte>>();
                 bool found = false;
 
                 while (true)
                 {
                     var result = channel.BasicGet(queue: queueName, autoAck: false);
-                    if (result == null) break;
+                    if (result is null) break;
 
-                    var messageJson = Encoding.UTF8.GetString(result.Body.ToArray());
-
-                    var orderMessage = JsonSerializer.Deserialize<OrderMessageDto>(messageJson, new JsonSerializerOptions
+                    var body = result.Body.ToArray();
+                    var json = Encoding.UTF8.GetString(body);
+                    var orderMessage = JsonSerializer.Deserialize<OrderMessageDto>(json, new JsonSerializerOptions
                     {
                         PropertyNameCaseInsensitive = true
                     });
 
-                    if (orderMessage?.OrderId == OrderId)
+                    if (orderMessage?.OrderId == orderId)
                     {
-                        // ✅ Confirm the order via service
-                        var success = await ConfirmOrderByIdAsync(OrderId, tempQueue);
-                        if (success)
+                        var confirmed = await ConfirmOrderByIdAsync(orderId);
+                        if (confirmed)
                         {
                             channel.BasicAck(result.DeliveryTag, false);
                             found = true;
@@ -194,30 +193,92 @@ namespace SalesOrderApi.Repository.OrderRepository
                         }
                         else
                         {
-                            channel.BasicAck(result.DeliveryTag, false); // avoid stuck message
-                            return $"⚠️ Order {OrderId} found but confirmation failed.";
+                            // Prevent stuck message even on failure
+                            channel.BasicAck(result.DeliveryTag, false);
+                            return $"⚠️ Order {orderId} found but confirmation failed.";
                         }
                     }
 
-                    // ❗ Push unmatched message to temp queue (requeue)
+                    // Buffer unmatched message
+                    buffer.Add(body);
                     channel.BasicAck(result.DeliveryTag, false);
-                    channel.BasicPublish(exchange: "", routingKey: tempQueue, body: result.Body);
                 }
 
-                // 🚚 Move temp queue messages back to original
-                while (true)
+                // Re-publish buffered messages back into the queue
+                foreach (var msg in buffer)
                 {
-                    var tempResult = channel.BasicGet(queue: tempQueue, autoAck: false);
-                    if (tempResult == null) break;
-                    channel.BasicAck(tempResult.DeliveryTag, false);
-                    channel.BasicPublish(exchange: "", routingKey: queueName, body: tempResult.Body);
+                    channel.BasicPublish(exchange: "", routingKey: queueName, body: msg);
                 }
 
                 return found
-                    ? $"✅ Order {OrderId} confirmed and removed from '{queueName}'."
-                    : $"❌ Order {OrderId} not found in '{queueName}'.";
+                    ? $"✅ Order {orderId} confirmed and removed from '{queueName}'."
+                    : $"❌ Order {orderId} not found in '{queueName}'.";
             }
         }
+
+        //public async Task<string> ConfirmOrderByIdWithNewQueue(int OrderId)
+        //{
+        //    var (connection, channel) = CreateRabbitMqChannel();
+        //    using (connection)
+        //    using (channel)
+        //    {
+        //        const string queueName = "OrderQueue";
+        //        channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false);
+        //        channel.BasicQos(0, 1, false);
+
+        //        var tempQueue = $"{queueName}-{Guid.NewGuid()}";
+        //        channel.QueueDeclare(tempQueue, durable: true, exclusive: false, autoDelete: true);
+
+        //        bool found = false;
+
+        //        while (true)
+        //        {
+        //            var result = channel.BasicGet(queue: queueName, autoAck: false);
+        //            if (result is null) break;
+
+        //            var messageJson = Encoding.UTF8.GetString(result.Body.ToArray());
+
+        //            var orderMessage = JsonSerializer.Deserialize<OrderMessageDto>(messageJson, new JsonSerializerOptions
+        //            {
+        //                PropertyNameCaseInsensitive = true
+        //            });
+
+        //            if (orderMessage?.OrderId == OrderId)
+        //            {
+        //                // ✅ Confirm the order via service
+        //                var success = await ConfirmOrderByIdAsync(OrderId, tempQueue);
+        //                if (success)
+        //                {
+        //                    channel.BasicAck(result.DeliveryTag, false);
+        //                    found = true;
+        //                    break;
+        //                }
+        //                else
+        //                {
+        //                    channel.BasicAck(result.DeliveryTag, false); // avoid stuck message
+        //                    return $"⚠️ Order {OrderId} found but confirmation failed.";
+        //                }
+        //            }
+
+        //            // ❗ Push unmatched message to temp queue (requeue)
+        //            channel.BasicAck(result.DeliveryTag, false);
+        //            channel.BasicPublish(exchange: "", routingKey: tempQueue, body: result.Body);
+        //        }
+
+        //        // 🚚 Move temp queue messages back to original
+        //        while (true)
+        //        {
+        //            var tempResult = channel.BasicGet(queue: tempQueue, autoAck: false);
+        //            if (tempResult == null) break;
+        //            channel.BasicAck(tempResult.DeliveryTag, false);
+        //            channel.BasicPublish(exchange: "", routingKey: queueName, body: tempResult.Body);
+        //        }
+
+        //        return found
+        //            ? $"✅ Order {OrderId} confirmed and removed from '{queueName}'."
+        //            : $"❌ Order {OrderId} not found in '{queueName}'.";
+        //    }
+        //}
 
         public async Task<string> UpdateConfirmOrderDetails(string queueName)
         {
@@ -244,7 +305,7 @@ namespace SalesOrderApi.Repository.OrderRepository
             }
         }
 
-        private async Task<bool> ConfirmOrderByIdAsync(int orderId, string queueName)
+        private async Task<bool> ConfirmOrderByIdAsync(int orderId)
         {
             var order = await _db.Orders.FirstOrDefaultAsync(x => x.OrderId == orderId);
 
@@ -252,7 +313,7 @@ namespace SalesOrderApi.Repository.OrderRepository
                 return false;
 
             order.Status = "Confirmed";
-            order.Queue = queueName;
+            //    order.Queue = queueName;
 
             _db.Orders.Update(order);
             return await _db.SaveChangesAsync() > 0;

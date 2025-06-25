@@ -85,6 +85,9 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddSingleton<IRabbitMqService, RabbitMqService>();
 builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMQ"));
 
+// Add Hosted Service for RabbitMQ Consumer
+//builder.Services.AddHostedService<OrderConsumer>();
+
 // ✅ Mapster Config for DTO Mapping
 TypeAdapterConfig.GlobalSettings.Scan(Assembly.GetExecutingAssembly());
 builder.Services.AddSingleton(new MapsterProfile());

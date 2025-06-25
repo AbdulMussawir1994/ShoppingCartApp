@@ -5,7 +5,7 @@ namespace SalesOrderApi.Repository.OrderRepository
 {
     public interface IOrderService
     {
-        Task<string> ConfirmOrderByIdInQueueAsync(int OrderId);
+        Task<string> ConfirmOrderByIdInQueueAsync(int orderId);
         Task<string> UpdateConfirmOrderDetails(string queueName);
         Task<MobileResponse<IEnumerable<GetOrderDto>>> GetAllAsync(CancellationToken ctx);
         Task<MobileResponse<GetOrderDto>> GetByIdAsync(int id, CancellationToken ctx);
