@@ -4,6 +4,7 @@ using RabbitMQ.Client;
 using RabbitMQ.Client.Exceptions;
 using SalesOrderApi.DbContextClass;
 using SalesOrderApi.Dtos;
+using SalesOrderApi.Dtos.Address;
 using SalesOrderApi.Dtos.Product;
 using SalesOrderApi.Model;
 using SalesOrderApi.Repository.RabbitMqProducer;
@@ -112,18 +113,6 @@ namespace SalesOrderApi.Repository.OrderRepository
 
             _rabbitMqService.PublishMessage("OrderQueue", rabbitMqOrder);
 
-            //_rabbitMqService.PublishMessage("OrderQueue", new OrderMessageDto
-            //{
-            //    OrderId = order.OrderId,
-            //    ProductId = order.ProductId,
-            //    UserId = userId,
-            //    ProductName = product.ProductName,
-            //    Consumer = consumer,
-            //    CreatedDate = order.CreatedDate,
-            //    Status = order.Status,
-            //    TotalOrders = order.TotalOrders,
-            //});
-
             return MobileResponse<OrderMessageDto>.Success(rabbitMqOrder, "Order Created and Publish Message in to Confirmation Order");
         }
 
@@ -156,65 +145,91 @@ namespace SalesOrderApi.Repository.OrderRepository
                 : MobileResponse<bool>.Fail("Delete Failed");
         }
 
-        public async Task<string> ConfirmOrderByIdInQueueAsync(ConfirmOrderViewModel model)
+        public async Task<MobileResponse<string>> ConfirmOrderByIdInQueueAsync(ConfirmOrderViewModel model)
         {
             var (connection, channel) = CreateRabbitMqChannel();
+
             using (connection)
             using (channel)
             {
                 const string queueName = "OrderQueue";
 
-                // Ensure queue exists
                 channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false);
                 channel.BasicQos(0, 1, false);
 
                 var buffer = new List<ReadOnlyMemory<byte>>();
-                bool found = false;
+                bool isConfirmed = false;
 
                 while (true)
                 {
                     var result = channel.BasicGet(queue: queueName, autoAck: false);
-                    if (result is null) break;
+                    if (result == null)
+                        break;
 
                     var body = result.Body.ToArray();
-                    var json = Encoding.UTF8.GetString(body);
-                    var orderMessage = JsonSerializer.Deserialize<OrderMessageDto>(json, new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    });
+                    var orderMessage = JsonSerializer.Deserialize<OrderMessageDto>(
+                        Encoding.UTF8.GetString(body),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                    );
 
                     if (orderMessage?.OrderId == model.OrderId)
                     {
-                        var confirmed = await ConfirmOrderByIdAsync(model.OrderId);
-                        if (confirmed)
+                        bool orderConfirmed = await ConfirmOrderByIdAsync(model.OrderId);
+                        if (!orderConfirmed)
                         {
                             channel.BasicAck(result.DeliveryTag, false);
-                            found = true;
-                            break;
+                            return MobileResponse<string>.Fail($"⚠️ Order {model.OrderId} found but confirmation failed.");
+                        }
+
+                        var deliveryStatus = await ConfirmDeliveryStatus(model, orderMessage.Consumer, orderMessage.UserId);
+                        if (deliveryStatus.Status)
+                        {
+                            channel.BasicAck(result.DeliveryTag, false);
+                            isConfirmed = true;
+                            return MobileResponse<string>.Success($"✅ Order {model.OrderId} confirmed and removed from '{queueName}'.");
                         }
                         else
                         {
-                            // Prevent stuck message even on failure
+                            // Requeue failed delivery message
                             channel.BasicAck(result.DeliveryTag, false);
-                            return $"⚠️ Order {model.OrderId} found but confirmation failed.";
+                            channel.BasicPublish(exchange: "", routingKey: queueName, body: body);
+                            return MobileResponse<string>.Fail($"❌ Delivery failed for Order {model.OrderId}. Message requeued.");
                         }
                     }
 
-                    // Buffer unmatched message
                     buffer.Add(body);
                     channel.BasicAck(result.DeliveryTag, false);
                 }
 
-                // Re-publish buffered messages back into the queue
+                // Requeue buffered unmatched messages
                 foreach (var msg in buffer)
                 {
                     channel.BasicPublish(exchange: "", routingKey: queueName, body: msg);
                 }
 
-                return found
-                    ? $"✅ Order {model.OrderId} confirmed and removed from '{queueName}'."
-                    : $"❌ Order {model.OrderId} not found in '{queueName}'.";
+                return isConfirmed
+                    ? MobileResponse<string>.Success($"✅ Order {model.OrderId} confirmed.")
+                    : MobileResponse<string>.Fail($"❌ Order {model.OrderId} not found in '{queueName}'.");
             }
+        }
+
+        public async Task<MobileResponse<ShippingResponseDto>> ConfirmDeliveryStatus(ConfirmOrderViewModel model, string consumerName, string userId)
+        {
+
+            // ✅ Publish message to RabbitMQ
+            var rabbitMqShipping = new ShippingResponseDto
+            {
+                UserId = userId,
+                Consumer = consumerName,
+                OrderId = model.OrderId,
+                Address = model.Address,
+            };
+
+            var result = _rabbitMqService.PublishMessageWithReturn("ShippingQueue", rabbitMqShipping);
+
+            return result
+                ? MobileResponse<ShippingResponseDto>.Success(rabbitMqShipping, "Shipping Details Sent to the Supplier")
+                : MobileResponse<ShippingResponseDto>.Fail("Delivery Status Failed.");
         }
 
         //public async Task<string> ConfirmOrderByIdWithNewQueue(int OrderId)
@@ -308,17 +323,21 @@ namespace SalesOrderApi.Repository.OrderRepository
 
         private async Task<bool> ConfirmOrderByIdAsync(int orderId)
         {
-            var order = await _db.Orders.FirstOrDefaultAsync(x => x.OrderId == orderId);
+            var order = await _db.Orders
+                                 .AsTracking()
+                                 .FirstOrDefaultAsync(o => o.OrderId == orderId);
 
             if (order is null)
                 return false;
 
-            order.Status = "Confirmed";
-            //    order.Queue = queueName;
+            if (order.Status == "Confirmed")
+                return true;
 
-            _db.Orders.Update(order);
+            order.Status = "Confirmed";
+
             return await _db.SaveChangesAsync() > 0;
         }
+
 
         private (IConnection connection, IModel channel) CreateRabbitMqChannel()
         {

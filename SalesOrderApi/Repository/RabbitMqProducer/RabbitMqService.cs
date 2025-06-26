@@ -60,6 +60,24 @@ public class RabbitMqService : IRabbitMqService, IDisposable
         }
     }
 
+    public bool PublishMessageWithReturn<T>(string queueName, T message)
+    {
+        if (string.IsNullOrWhiteSpace(queueName) || message == null)
+            return false;
+
+        try
+        {
+            _channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false);
+            var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
+            _channel.BasicPublish(exchange: "", routingKey: queueName, basicProperties: null, body: body);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public void Dispose()
     {
         _channel?.Close();
