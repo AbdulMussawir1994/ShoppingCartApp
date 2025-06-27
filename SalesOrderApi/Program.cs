@@ -203,6 +203,8 @@ app.UseResponseCaching();
 
 app.UseRouting();
 
+app.UseMiddleware<GlobalExceptionMiddleware>();
+
 app.UseAuthentication();
 app.UseAuthorization();
 

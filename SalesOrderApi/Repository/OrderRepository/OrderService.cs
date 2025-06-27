@@ -92,7 +92,8 @@ namespace SalesOrderApi.Repository.OrderRepository
             {
                 OrderId = order.OrderId,
                 UserId = order.UserId,
-                CreatedDate = DateTime.UtcNow
+                CreatedDate = DateTime.UtcNow,
+                DeliveryStatus = "Pending"
             };
 
             await _db.ConfirmOrders.AddAsync(confirmOrder, ctx);
@@ -163,7 +164,7 @@ namespace SalesOrderApi.Repository.OrderRepository
                 while (true)
                 {
                     var result = channel.BasicGet(queue: queueName, autoAck: false);
-                    if (result == null)
+                    if (result is null)
                         break;
 
                     var body = result.Body.ToArray();
@@ -193,7 +194,7 @@ namespace SalesOrderApi.Repository.OrderRepository
                             // Requeue failed delivery message
                             channel.BasicAck(result.DeliveryTag, false);
                             channel.BasicPublish(exchange: "", routingKey: queueName, body: body);
-                            return MobileResponse<string>.Fail($"❌ Delivery failed for Order {model.OrderId}. Message requeued.");
+                            return MobileResponse<string>.Fail($"❌ Delivery failed for Order {model.OrderId} due to {deliveryStatus.Message}.");
                         }
                     }
 
@@ -215,9 +216,23 @@ namespace SalesOrderApi.Repository.OrderRepository
 
         public async Task<MobileResponse<ShippingResponseDto>> ConfirmDeliveryStatus(ConfirmOrderViewModel model, string consumerName, string userId)
         {
+            var order = await _db.ConfirmOrders
+                .Where(o => o.OrderId == model.OrderId)
+                .FirstOrDefaultAsync();
 
-            // ✅ Publish message to RabbitMQ
-            var rabbitMqShipping = new ShippingResponseDto
+            if (order is null)
+            {
+                return MobileResponse<ShippingResponseDto>.Fail("Order not found.");
+            }
+
+            // Update delivery status only if necessary
+            if (!string.Equals(order.DeliveryStatus, "Confirmed", StringComparison.OrdinalIgnoreCase))
+            {
+                order.DeliveryStatus = "Confirmed";
+                await _db.SaveChangesAsync();
+            }
+
+            var shippingDto = new ShippingResponseDto
             {
                 UserId = userId,
                 Consumer = consumerName,
@@ -225,11 +240,11 @@ namespace SalesOrderApi.Repository.OrderRepository
                 Address = model.Address,
             };
 
-            var result = _rabbitMqService.PublishMessageWithReturn("ShippingQueue", rabbitMqShipping);
+            var published = _rabbitMqService.PublishMessageWithReturn("ShippingQueue", shippingDto);
 
-            return result
-                ? MobileResponse<ShippingResponseDto>.Success(rabbitMqShipping, "Shipping Details Sent to the Supplier")
-                : MobileResponse<ShippingResponseDto>.Fail("Delivery Status Failed.");
+            return published
+                ? MobileResponse<ShippingResponseDto>.Success(shippingDto, "Shipping details sent to the supplier.")
+                : MobileResponse<ShippingResponseDto>.Fail("Failed to send delivery status.");
         }
 
         //public async Task<string> ConfirmOrderByIdWithNewQueue(int OrderId)
@@ -323,9 +338,7 @@ namespace SalesOrderApi.Repository.OrderRepository
 
         private async Task<bool> ConfirmOrderByIdAsync(int orderId)
         {
-            var order = await _db.Orders
-                                 .AsTracking()
-                                 .FirstOrDefaultAsync(o => o.OrderId == orderId);
+            var order = await _db.Orders.FirstOrDefaultAsync(o => o.OrderId == orderId);
 
             if (order is null)
                 return false;

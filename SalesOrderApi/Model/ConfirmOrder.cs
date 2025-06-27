@@ -10,7 +10,7 @@ namespace SalesOrderApi.Model
         [Required, MaxLength(50)]
         public string UserId { get; set; } = string.Empty;
         public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
-        public DateTime ConfirmedOrder { get; set; }
+        public string DeliveryStatus { get; set; }
 
         [Required]
         public int OrderId { get; set; }

@@ -8,10 +8,10 @@ public sealed class MapsterProfile : TypeAdapterConfig
 {
     public MapsterProfile()
     {
-        EmployeeMapping();
+        DataMapping();
     }
 
-    private void EmployeeMapping()
+    private void DataMapping()
     {
         TypeAdapterConfig<Product, GetProductDto>.NewConfig()
             .Map(x => x.id, map => map.ProductId)

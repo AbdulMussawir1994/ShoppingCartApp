@@ -1,21 +1,205 @@
+﻿using Mapster;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ApiExplorer;
+using Microsoft.AspNetCore.Mvc.Versioning;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Models;
+using ShippingOrderApi.DbContextClass;
+using ShippingOrderApi.Helpers;
+using ShippingOrderApi.Repository.SupplierRepository;
+using ShippingOrderApi.Repository.UserContext;
+using ShippingOrderApi.Utilities;
+using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// ----------------------------- Configuration & Validation -----------------------------
+var configuration = builder.Configuration;
 
-builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+// Validate JWT Secret
+var jwtSecret = builder.Configuration["JWTKey:Secret"];
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Length < 32)
+    throw new Exception("JWTKey:Secret must be at least 32 characters long.");
+
+// ----------------------------- Services Registration -----------------------------
+
+// ✅ Database Context with Posgres
+builder.Services.AddDbContextPool<ShippingDbContext>(options =>
+{
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), npgsqlOptions =>
+    {
+        npgsqlOptions.CommandTimeout(60);
+        npgsqlOptions.EnableRetryOnFailure(3);
+    });
+
+    options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking); // 🔥 High read-performance
+});
+
+// Controllers with consistent, fast JSON serialization config
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.WriteIndented = false;
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+    });
+
+// CORS Policy (you can restrict origin in production)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowApi", policy =>
+    {
+        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+    });
+});
+
+//🔄 API Versioning
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(2, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+    options.ApiVersionReader = new UrlSegmentApiVersionReader(); // Important!
+});
+
+builder.Services.AddVersionedApiExplorer(options =>
+{
+    options.GroupNameFormat = "'v'VVV";
+    options.SubstituteApiVersionInUrl = true;
+});
+
+// ✅ Register Application Services
+builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<ISupplierService, SupplierService>();
+
+// ✅ Add Services for RabbitMQ Producer
+//builder.Services.AddSingleton<IRabbitMqService, RabbitMqService>();
+//builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMQ"));
+
+// Add Hosted Service for RabbitMQ Consumer
+//builder.Services.AddHostedService<OrderConsumer>();
+
+// ✅ Mapster Config for DTO Mapping
+TypeAdapterConfig.GlobalSettings.Scan(Assembly.GetExecutingAssembly());
+builder.Services.AddSingleton(new MapsterProfile());
+
+builder.Services.AddHttpClient(); // Required for IHttpClientFactory
+builder.Services.AddHttpContextAccessor();
+
+//builder.Services.AddHttpClient("ProductApi", client =>
+//{
+//    client.BaseAddress = new Uri("https://localhost:7124/api/v2/Product/");
+//    client.DefaultRequestHeaders.Add("Accept", "application/json");
+//})
+//.ConfigureHttpClient((sp, client) =>
+//{
+//    var httpContext = sp.GetRequiredService<IHttpContextAccessor>()?.HttpContext;
+//    var token = httpContext?.Request?.Headers["Authorization"].FirstOrDefault();
+//    if (!string.IsNullOrWhiteSpace(token))
+//    {
+//        if (token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+//            token = token.Substring(7);
+//        client.DefaultRequestHeaders.Authorization =
+//            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+//    }
+//});
+
+// JWT Authentication & Authorization
+builder.AddAppAuthentication();
+builder.Services.AddAuthorization();
+
+
+builder.Services.AddEndpointsApiExplorer();
+
+// 🧭 Swagger Configuration with JWT Bearer
+builder.Services.AddSwaggerGen(options =>
+{
+    var provider = builder.Services.BuildServiceProvider()
+                      .GetRequiredService<IApiVersionDescriptionProvider>();
+
+    foreach (var description in provider.ApiVersionDescriptions)
+    {
+        options.SwaggerDoc(description.GroupName, new OpenApiInfo
+        {
+            Title = $"Shipping API - {description.GroupName.ToUpperInvariant()}",
+            Version = description.GroupName
+        });
+    }
+
+    // 🔐 JWT setup (already good in your code)
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "Enter your JWT token below with **Bearer** prefix.\r\nExample: Bearer eyJhbGciOi...",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer",
+        BearerFormat = "JWT"
+    });
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+
+    // XML comments (optional)
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        options.IncludeXmlComments(xmlPath);
+    }
+});
+
+// Add Response Caching (optional)
+builder.Services.AddResponseCaching();
+
+// ----------------------------- App Pipeline -----------------------------
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+// ✅ Set OrderId seed to start from 1000 for MySQL
+//using (var scope = app.Services.CreateScope())
+//{
+//    var dbContext = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
+
+//    // Optional: Apply migrations if using EF migrations
+//    // await dbContext.Database.MigrateAsync();
+
+//    // ✅ Only reseed if table is empty
+//    if (!dbContext.Orders.Any())
+//    {
+//        await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE `Order` AUTO_INCREMENT = 1000;");
+//    }
+//}
+
+// Swagger for development only
+app.ConfigureSwagger();
 
 app.UseHttpsRedirection();
 
+app.UseCors("AllowApi");
+
+app.UseResponseCaching();
+
+app.UseRouting();
+
+app.UseMiddleware<GlobalExceptionMiddleware>();
+
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
