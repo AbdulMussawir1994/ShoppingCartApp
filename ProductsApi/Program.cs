@@ -7,6 +7,7 @@ using Microsoft.OpenApi.Models;
 using ProductsApi.DbContextClass;
 using ProductsApi.Helpers;
 using ProductsApi.Repository.ProductRepository;
+using ProductsApi.Repository.RabbitMqProducer;
 using ProductsApi.Repository.UserContext;
 using ProductsApi.Utilities;
 using System.Reflection;
@@ -56,8 +57,13 @@ builder.Services.AddCors(options =>
 // ✅ Register Application Services
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IUserService, UserService>();
-//builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMQ"));
-//builder.Services.AddSingleton<IRabbitMqService, RabbitMqService>();
+
+var machineId = builder.Configuration.GetValue<int>("Snowflake:MachineId");
+builder.Services.AddSingleton(new SnowflakeIdGenerator(machineId));
+
+// ✅ Add Services for RabbitMQ Producer
+builder.Services.AddSingleton<IRabbitMqService, RabbitMqService>();
+builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMQ"));
 
 // ✅ Mapster Config for DTO Mapping
 TypeAdapterConfig.GlobalSettings.Scan(Assembly.GetExecutingAssembly());

@@ -19,12 +19,19 @@ namespace SalesOrderApi.Controllers
             _orderService = orderService;
         }
 
-        [HttpPost("ConfirmOrder")]
-        public async Task<ActionResult> ConfirmOrder(ConfirmOrderViewModel model)
+        [HttpPost("ProductConfirm")]
+        public async Task<ActionResult> ProductConfirm(ConfirmProductViewModel model)
         {
-            var result = await _orderService.ConfirmOrderByIdInQueueAsync(model);
+            var result = await _orderService.ProductConfirmAsync(model);
             return Ok(result);
         }
+
+        //[HttpPost("ConfirmOrder")]
+        //public async Task<ActionResult> ConfirmOrder(ConfirmOrderViewModel model)
+        //{
+        //    var result = await _orderService.ConfirmOrderByIdInQueueAsync(model);
+        //    return Ok(result);
+        //}
 
         [HttpPost("ConfirmOrderWithQueue/{queueName}")]
         public async Task<IActionResult> ConfirmOrder(string queueName)

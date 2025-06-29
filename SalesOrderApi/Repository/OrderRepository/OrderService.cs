@@ -39,7 +39,7 @@ namespace SalesOrderApi.Repository.OrderRepository
             var orders = await _db.Orders.AsNoTracking().ToListAsync(ctx);
             return orders.Any()
                 ? MobileResponse<IEnumerable<GetOrderDto>>.Success(orders.Adapt<IEnumerable<GetOrderDto>>(), "Orders Fetched")
-                : MobileResponse<IEnumerable<GetOrderDto>>.EmptySuccess(Enumerable.Empty<GetOrderDto>(), "No Orders Found");
+                : MobileResponse<IEnumerable<GetOrderDto>>.Success(Enumerable.Empty<GetOrderDto>(), "No Orders Found");
         }
 
         public async Task<MobileResponse<GetOrderDto>> GetByIdAsync(int id, CancellationToken ctx)
@@ -48,6 +48,101 @@ namespace SalesOrderApi.Repository.OrderRepository
             return order is null
                 ? MobileResponse<GetOrderDto>.Fail("Order Not Found")
                 : MobileResponse<GetOrderDto>.Success(order.Adapt<GetOrderDto>(), "Order Fetched");
+        }
+
+
+        public async Task<MobileResponse<OrderMessageDto>> ProductConfirmAsync(ConfirmProductViewModel model)
+        {
+            var (connection, channel) = CreateRabbitMqChannel();
+
+            using (connection)
+            using (channel)
+            {
+                const string queueName = "OrderQueue";
+                channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false);
+                channel.BasicQos(0, 1, false);
+
+                var buffer = new List<ReadOnlyMemory<byte>>();
+                bool isConfirmed = false;
+
+                // 👇 Create execution strategy for retry-aware transaction
+                var strategy = _db.Database.CreateExecutionStrategy();
+
+                try
+                {
+                    await strategy.ExecuteAsync(async () =>
+                    {
+                        await using var transaction = await _db.Database.BeginTransactionAsync();
+
+                        while (true)
+                        {
+                            var result = channel.BasicGet(queue: queueName, autoAck: false);
+                            if (result is null)
+                                break;
+
+                            var body = result.Body.ToArray();
+                            var orderMessage = JsonSerializer.Deserialize<OrderMessageDto>(
+                                Encoding.UTF8.GetString(body),
+                                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                            if (orderMessage?.OrderId == model.OrderId)
+                            {
+                                var order = new Order
+                                {
+                                    OrderId = model.OrderId,
+                                    Consumer = orderMessage.Consumer,
+                                    UserId = orderMessage.UserId,
+                                    Status = "Pending",
+                                    CreatedDate = DateTime.UtcNow,
+                                    ProductId = orderMessage.ProductId,
+                                    ProductName = orderMessage.ProductName,
+                                    TotalOrders = orderMessage.TotalOrders,
+                                };
+
+                                await _db.Orders.AddAsync(order);
+                                var saved = await _db.SaveChangesAsync();
+
+                                if (saved > 0)
+                                {
+                                    await transaction.CommitAsync();
+                                    channel.BasicAck(result.DeliveryTag, false);
+                                    isConfirmed = true;
+                                    return; // Exit ExecuteAsync
+                                }
+                                else
+                                {
+                                    await transaction.RollbackAsync();
+                                    channel.BasicAck(result.DeliveryTag, false);
+                                    channel.BasicPublish(exchange: "", routingKey: queueName, body: body);
+                                    throw new InvalidOperationException($"❌ DB failed to confirm Order {model.OrderId}.");
+                                }
+                            }
+
+                            buffer.Add(body);
+                            channel.BasicAck(result.DeliveryTag, false);
+                        }
+
+                        await transaction.CommitAsync();
+                    });
+
+                    // Re-publish messages back if not confirmed
+                    if (!isConfirmed)
+                    {
+                        foreach (var msg in buffer)
+                        {
+                            channel.BasicPublish(exchange: "", routingKey: queueName, body: msg);
+                        }
+                        return MobileResponse<OrderMessageDto>.Fail($"❌ Order {model.OrderId} not found in '{queueName}'.");
+                    }
+
+                    return MobileResponse<OrderMessageDto>.SuccessWithNoResponse($"✅ Order {model.OrderId} confirmed and removed from '{queueName}'.");
+                }
+                catch (Exception ex)
+                {
+                    // Rollback handled inside strategy block
+                    return MobileResponse<OrderMessageDto>.Fail($"🚫 Error confirming order: {ex.Message}");
+                }
+            }
         }
 
         public async Task<MobileResponse<OrderMessageDto>> CreateAsync(CreateOrderDto model, CancellationToken ctx)
@@ -142,77 +237,77 @@ namespace SalesOrderApi.Repository.OrderRepository
             _db.Orders.Remove(order);
             var result = await _db.SaveChangesAsync(ctx);
             return result > 0
-                ? MobileResponse<bool>.EmptySuccess(true, "Order Deleted")
+                ? MobileResponse<bool>.Success(true, "Order Deleted")
                 : MobileResponse<bool>.Fail("Delete Failed");
         }
 
-        public async Task<MobileResponse<string>> ConfirmOrderByIdInQueueAsync(ConfirmOrderViewModel model)
-        {
-            var (connection, channel) = CreateRabbitMqChannel();
+        //public async Task<MobileResponse<string>> ConfirmOrderByIdInQueueAsync(ConfirmOrderViewModel model)
+        //{
+        //    var (connection, channel) = CreateRabbitMqChannel();
 
-            using (connection)
-            using (channel)
-            {
-                const string queueName = "OrderQueue";
+        //    using (connection)
+        //    using (channel)
+        //    {
+        //        const string queueName = "OrderQueue";
 
-                channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false);
-                channel.BasicQos(0, 1, false);
+        //        channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false);
+        //        channel.BasicQos(0, 1, false);
 
-                var buffer = new List<ReadOnlyMemory<byte>>();
-                bool isConfirmed = false;
+        //        var buffer = new List<ReadOnlyMemory<byte>>();
+        //        bool isConfirmed = false;
 
-                while (true)
-                {
-                    var result = channel.BasicGet(queue: queueName, autoAck: false);
-                    if (result is null)
-                        break;
+        //        while (true)
+        //        {
+        //            var result = channel.BasicGet(queue: queueName, autoAck: false);
+        //            if (result is null)
+        //                break;
 
-                    var body = result.Body.ToArray();
-                    var orderMessage = JsonSerializer.Deserialize<OrderMessageDto>(
-                        Encoding.UTF8.GetString(body),
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-                    );
+        //            var body = result.Body.ToArray();
+        //            var orderMessage = JsonSerializer.Deserialize<OrderMessageDto>(
+        //                Encoding.UTF8.GetString(body),
+        //                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+        //            );
 
-                    if (orderMessage?.OrderId == model.OrderId)
-                    {
-                        bool orderConfirmed = await ConfirmOrderByIdAsync(model.OrderId);
-                        if (!orderConfirmed)
-                        {
-                            channel.BasicAck(result.DeliveryTag, false);
-                            return MobileResponse<string>.Fail($"⚠️ Order {model.OrderId} found but confirmation failed.");
-                        }
+        //            if (orderMessage?.OrderId == model.OrderId)
+        //            {
+        //                bool orderConfirmed = await ConfirmOrderByIdAsync(model.OrderId);
+        //                if (!orderConfirmed)
+        //                {
+        //                    channel.BasicAck(result.DeliveryTag, false);
+        //                    return MobileResponse<string>.Fail($"⚠️ Order {model.OrderId} found but confirmation failed.");
+        //                }
 
-                        var deliveryStatus = await ConfirmDeliveryStatus(model, orderMessage.Consumer, orderMessage.UserId);
-                        if (deliveryStatus.Status)
-                        {
-                            channel.BasicAck(result.DeliveryTag, false);
-                            isConfirmed = true;
-                            return MobileResponse<string>.Success($"✅ Order {model.OrderId} confirmed and removed from '{queueName}'.");
-                        }
-                        else
-                        {
-                            // Requeue failed delivery message
-                            channel.BasicAck(result.DeliveryTag, false);
-                            channel.BasicPublish(exchange: "", routingKey: queueName, body: body);
-                            return MobileResponse<string>.Fail($"❌ Delivery failed for Order {model.OrderId} due to {deliveryStatus.Message}.");
-                        }
-                    }
+        //                var deliveryStatus = await ConfirmDeliveryStatus(model, orderMessage.Consumer, orderMessage.UserId);
+        //                if (deliveryStatus.Status)
+        //                {
+        //                    channel.BasicAck(result.DeliveryTag, false);
+        //                    isConfirmed = true;
+        //                    return MobileResponse<string>.Success($"✅ Order {model.OrderId} confirmed and removed from '{queueName}'.");
+        //                }
+        //                else
+        //                {
+        //                    // Requeue failed delivery message
+        //                    channel.BasicAck(result.DeliveryTag, false);
+        //                    channel.BasicPublish(exchange: "", routingKey: queueName, body: body);
+        //                    return MobileResponse<string>.Fail($"❌ Delivery failed for Order {model.OrderId} due to {deliveryStatus.Message}.");
+        //                }
+        //            }
 
-                    buffer.Add(body);
-                    channel.BasicAck(result.DeliveryTag, false);
-                }
+        //            buffer.Add(body);
+        //            channel.BasicAck(result.DeliveryTag, false);
+        //        }
 
-                // Requeue buffered unmatched messages
-                foreach (var msg in buffer)
-                {
-                    channel.BasicPublish(exchange: "", routingKey: queueName, body: msg);
-                }
+        //        // Requeue buffered unmatched messages
+        //        foreach (var msg in buffer)
+        //        {
+        //            channel.BasicPublish(exchange: "", routingKey: queueName, body: msg);
+        //        }
 
-                return isConfirmed
-                    ? MobileResponse<string>.Success($"✅ Order {model.OrderId} confirmed.")
-                    : MobileResponse<string>.Fail($"❌ Order {model.OrderId} not found in '{queueName}'.");
-            }
-        }
+        //        return isConfirmed
+        //            ? MobileResponse<string>.Success($"✅ Order {model.OrderId} confirmed.")
+        //            : MobileResponse<string>.Fail($"❌ Order {model.OrderId} not found in '{queueName}'.");
+        //    }
+        //}
 
         public async Task<MobileResponse<ShippingResponseDto>> ConfirmDeliveryStatus(ConfirmOrderViewModel model, string consumerName, string userId)
         {
@@ -336,7 +431,7 @@ namespace SalesOrderApi.Repository.OrderRepository
             }
         }
 
-        private async Task<bool> ConfirmOrderByIdAsync(int orderId)
+        private async Task<bool> ConfirmOrderByIdAsync(long orderId)
         {
             var order = await _db.Orders.FirstOrDefaultAsync(o => o.OrderId == orderId);
 
@@ -367,5 +462,6 @@ namespace SalesOrderApi.Repository.OrderRepository
 
             return (connection, channel);
         }
+
     }
 }

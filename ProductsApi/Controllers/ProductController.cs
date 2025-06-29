@@ -44,6 +44,17 @@ namespace ProductsApi.Controllers
             return response.Status ? Ok(response) : NotFound(response);
         }
 
+        [HttpPost]
+        [Route("SelectProduct")]
+        public async Task<ActionResult> SelectProduct([FromBody] SelectProductDto model, CancellationToken ctx)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var response = await _productService.SelectProductAsync(model, ctx);
+            return response.Status ? CreatedAtAction(nameof(SelectProduct), response) : BadRequest(response);
+        }
+
         [HttpPost("Create")]
         public async Task<ActionResult> Create([FromForm] CreateProductDto model, CancellationToken ctx)
         {

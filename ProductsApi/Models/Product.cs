@@ -31,6 +31,5 @@ public class Product
     public string? CreatedBy { get; set; } = string.Empty; // UserId
     public string? UpdatedBy { get; set; } = string.Empty;
 
-
-
+    public virtual ICollection<ProductConfirmed> ProductConfirmed { get; private set; } = new List<ProductConfirmed>();
 }

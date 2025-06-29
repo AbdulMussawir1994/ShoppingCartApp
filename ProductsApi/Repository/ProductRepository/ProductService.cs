@@ -2,7 +2,9 @@
 using Microsoft.EntityFrameworkCore;
 using ProductsApi.DbContextClass;
 using ProductsApi.Dtos;
+using ProductsApi.Helpers;
 using ProductsApi.Models;
+using ProductsApi.Repository.RabbitMqProducer;
 using ProductsApi.Repository.UserContext;
 using ProductsApi.Utilities;
 
@@ -12,11 +14,15 @@ public class ProductService : IProductService
 {
     private readonly ProductDbContext _db;
     private readonly IUserService _contextUser;
+    private readonly IRabbitMqService _rabbitMqService;
+    private readonly SnowflakeIdGenerator _idGenerator;
 
-    public ProductService(ProductDbContext db, IUserService contextUser)
+    public ProductService(ProductDbContext db, IUserService contextUser, IRabbitMqService rabbitMqService, SnowflakeIdGenerator idGenerator)
     {
         _db = db;
         _contextUser = contextUser;
+        _rabbitMqService = rabbitMqService;
+        _idGenerator = idGenerator;
     }
 
     public async Task<MobileResponse<IEnumerable<GetProductDto>>> GetAllAsync(CancellationToken ctx)
@@ -159,6 +165,65 @@ public class ProductService : IProductService
         catch (Exception ex)
         {
             return MobileResponse<ProductDto>.Fail($"An error occurred: {ex.Message}", "500");
+        }
+    }
+
+    public async Task<MobileResponse<ProductMessageDto>> SelectProductAsync(SelectProductDto model, CancellationToken ctx)
+    {
+        var product = await _db.Products
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.ProductId == model.ProductId, ctx);
+
+        if (product is null)
+            return MobileResponse<ProductMessageDto>.Fail("Product Not Found", "404");
+
+        // ✅ Prepare RabbitMQ message
+        var rabbitMqOrder = new ProductMessageDto
+        {
+            OrderId = NumberGenerator.GenerateSixDigitNumberWithLong(),
+            ProductId = product.ProductId,
+            UserId = _contextUser?.UserId ?? "1",
+            ProductName = product.ProductName,
+            Consumer = _contextUser?.Email ?? "Not Found",
+            Status = "Pending",
+            TotalOrders = model.TotalOrders,
+        };
+
+        // ✅ Start a transaction
+        await using var transaction = await _db.Database.BeginTransactionAsync(ctx);
+        try
+        {
+            var productConfirmed = new ProductConfirmed
+            {
+                ProductId = product.ProductId,
+                UserId = _contextUser?.UserId ?? "1",
+                GenerateSixDigitNumberId = rabbitMqOrder.OrderId,
+                TotalOrders = model.TotalOrders,
+            };
+
+            await _db.ProductConfirmed.AddAsync(productConfirmed, ctx);
+            var saved = await _db.SaveChangesAsync(ctx);
+
+            if (saved == 0)
+            {
+                await transaction.RollbackAsync(ctx);
+                return MobileResponse<ProductMessageDto>.Fail("Database save failed. Transaction rolled back.", "500");
+            }
+
+            var published = _rabbitMqService.PublishMessageWithReturn("OrderQueue", rabbitMqOrder);
+            if (!published)
+            {
+                await transaction.RollbackAsync(ctx);
+                return MobileResponse<ProductMessageDto>.Fail("Message publish failed. Transaction rolled back.", "500");
+            }
+
+            await transaction.CommitAsync(ctx);
+            return MobileResponse<ProductMessageDto>.Success(rabbitMqOrder, "Order created and message published successfully.");
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync(ctx);
+            return MobileResponse<ProductMessageDto>.Fail("Transaction failed due to an error.", "500");
         }
     }
 }

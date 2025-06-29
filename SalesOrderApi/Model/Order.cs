@@ -5,8 +5,9 @@ namespace SalesOrderApi.Model;
 
 public class Order
 {
-    [Key, DatabaseGenerated(DatabaseGeneratedOption.Identity)]
-    public int OrderId { get; set; }
+    //[Key, DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+    [Key]
+    public long OrderId { get; set; }
     [Required, MaxLength(50)]
     public string ProductId { get; set; } = string.Empty; // = Guid.NewGuid().ToString();
     public string UserId { get; set; } = string.Empty;

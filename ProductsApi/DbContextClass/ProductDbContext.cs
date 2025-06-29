@@ -110,5 +110,6 @@ namespace ProductsApi.DbContextClass
         }
 
         public DbSet<Product> Products => Set<Product>();
+        public DbSet<ProductConfirmed> ProductConfirmed => Set<ProductConfirmed>();
     }
 }
