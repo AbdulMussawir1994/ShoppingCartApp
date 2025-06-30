@@ -23,7 +23,15 @@ namespace SalesOrderApi.Controllers
         public async Task<ActionResult> ProductConfirm(ConfirmProductViewModel model)
         {
             var result = await _orderService.ProductConfirmAsync(model);
-            return Ok(result);
+            return result.Status ? Ok(result) : BadRequest(result);
+        }
+
+        [HttpPost]
+        [Route("OrderConfirmById")]
+        public async Task<ActionResult> OrderConfirmById(ConfirmOrderViewModel model)
+        {
+            var result = await _orderService.ConfirmOrderByIdAsync(model);
+            return result.Status ? Ok(result) : BadRequest(result);
         }
 
         //[HttpPost("ConfirmOrder")]

@@ -38,8 +38,8 @@ namespace SalesOrderApi.Repository.OrderRepository
         {
             var orders = await _db.Orders.AsNoTracking().ToListAsync(ctx);
             return orders.Any()
-                ? MobileResponse<IEnumerable<GetOrderDto>>.Success(orders.Adapt<IEnumerable<GetOrderDto>>(), "Orders Fetched")
-                : MobileResponse<IEnumerable<GetOrderDto>>.Success(Enumerable.Empty<GetOrderDto>(), "No Orders Found");
+                ? MobileResponse<IEnumerable<GetOrderDto>>.SuccessT(orders.Adapt<IEnumerable<GetOrderDto>>(), "Orders Fetched")
+                : MobileResponse<IEnumerable<GetOrderDto>>.SuccessT(Enumerable.Empty<GetOrderDto>(), "No Orders Found");
         }
 
         public async Task<MobileResponse<GetOrderDto>> GetByIdAsync(int id, CancellationToken ctx)
@@ -47,7 +47,7 @@ namespace SalesOrderApi.Repository.OrderRepository
             var order = await _db.Orders.AsNoTracking().FirstOrDefaultAsync(o => o.OrderId == id, ctx);
             return order is null
                 ? MobileResponse<GetOrderDto>.Fail("Order Not Found")
-                : MobileResponse<GetOrderDto>.Success(order.Adapt<GetOrderDto>(), "Order Fetched");
+                : MobileResponse<GetOrderDto>.SuccessT(order.Adapt<GetOrderDto>(), "Order Fetched");
         }
 
 
@@ -135,7 +135,7 @@ namespace SalesOrderApi.Repository.OrderRepository
                         return MobileResponse<OrderMessageDto>.Fail($"❌ Order {model.OrderId} not found in '{queueName}'.");
                     }
 
-                    return MobileResponse<OrderMessageDto>.SuccessWithNoResponse($"✅ Order {model.OrderId} confirmed and removed from '{queueName}'.");
+                    return MobileResponse<OrderMessageDto>.Success($"✅ Order {model.OrderId} confirmed and removed from '{queueName}'.");
                 }
                 catch (Exception ex)
                 {
@@ -209,7 +209,43 @@ namespace SalesOrderApi.Repository.OrderRepository
 
             _rabbitMqService.PublishMessage("OrderQueue", rabbitMqOrder);
 
-            return MobileResponse<OrderMessageDto>.Success(rabbitMqOrder, "Order Created and Publish Message in to Confirmation Order");
+            return MobileResponse<OrderMessageDto>.SuccessT(rabbitMqOrder, "Order Created and Publish Message in to Confirmation Order");
+        }
+
+        public async Task<MobileResponse<string>> ConfirmOrderByIdAsync(ConfirmOrderViewModel model)
+        {
+            var (connection, channel) = CreateRabbitMqChannel();
+
+            using (connection)
+            using (channel)
+            {
+                try
+                {
+                    var order = await _db.Orders.FirstOrDefaultAsync(o => o.OrderId == model.OrderId);
+                    if (order is null)
+                    {
+                        return MobileResponse<string>.Fail($"❌ Order {model.OrderId} not found.");
+                    }
+
+                    var isConfirmed = await ConfirmOrderByIdAsync(order);
+                    if (!isConfirmed)
+                    {
+                        return MobileResponse<string>.Fail($"✅ Order {model.OrderId} Failed due to Error.");
+                    }
+
+                    var deliveryStatus = await ConfirmDeliveryStatus(model, order.Consumer, order.UserId);
+                    if (deliveryStatus.Status)
+                    {
+                        return MobileResponse<string>.Success($"✅ Order {model.OrderId} confirmed.");
+                    }
+
+                    return MobileResponse<string>.Fail($"❌ Delivery failed for Order {model.OrderId}: {deliveryStatus.Message}");
+                }
+                catch (Exception ex)
+                {
+                    return MobileResponse<string>.Fail($"🚫 Error confirming order: {ex.Message}");
+                }
+            }
         }
 
         public async Task<MobileResponse<GetOrderDto>> UpdateAsync(int id, CreateOrderDto model, CancellationToken ctx)
@@ -225,7 +261,7 @@ namespace SalesOrderApi.Repository.OrderRepository
             _db.Orders.Update(order);
             var result = await _db.SaveChangesAsync(ctx);
             return result > 0
-                ? MobileResponse<GetOrderDto>.Success(order.Adapt<GetOrderDto>(), "Order Updated")
+                ? MobileResponse<GetOrderDto>.SuccessT(order.Adapt<GetOrderDto>(), "Order Updated")
                 : MobileResponse<GetOrderDto>.Fail("Update Failed");
         }
 
@@ -237,7 +273,7 @@ namespace SalesOrderApi.Repository.OrderRepository
             _db.Orders.Remove(order);
             var result = await _db.SaveChangesAsync(ctx);
             return result > 0
-                ? MobileResponse<bool>.Success(true, "Order Deleted")
+                ? MobileResponse<bool>.SuccessT(true, "Order Deleted")
                 : MobileResponse<bool>.Fail("Delete Failed");
         }
 
@@ -338,7 +374,7 @@ namespace SalesOrderApi.Repository.OrderRepository
             var published = _rabbitMqService.PublishMessageWithReturn("ShippingQueue", shippingDto);
 
             return published
-                ? MobileResponse<ShippingResponseDto>.Success(shippingDto, "Shipping details sent to the supplier.")
+                ? MobileResponse<ShippingResponseDto>.SuccessT(shippingDto, "Shipping details sent to the supplier.")
                 : MobileResponse<ShippingResponseDto>.Fail("Failed to send delivery status.");
         }
 
@@ -431,21 +467,64 @@ namespace SalesOrderApi.Repository.OrderRepository
             }
         }
 
-        private async Task<bool> ConfirmOrderByIdAsync(long orderId)
+        //private async Task<bool> ConfirmOrderByIdAsync(long orderId)
+        //{
+        //    var order = await _db.Orders.FirstOrDefaultAsync(o => o.OrderId == orderId);
+
+        //    if (order is null)
+        //        return false;
+
+        //    if (order.Status == "Confirmed")
+        //        return true;
+
+        //    order.Status = "Confirmed";
+
+        //    return await _db.SaveChangesAsync() > 0;
+        //}
+
+        private async Task<bool> ConfirmOrderByIdAsync(Order order)
         {
-            var order = await _db.Orders.FirstOrDefaultAsync(o => o.OrderId == orderId);
+            var strategy = _db.Database.CreateExecutionStrategy();
 
-            if (order is null)
-                return false;
+            return await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await _db.Database.BeginTransactionAsync();
 
-            if (order.Status == "Confirmed")
-                return true;
+                try
+                {
+                    if (await _db.ConfirmOrders.AnyAsync(x => x.OrderId == order.OrderId))
+                    {
+                        return true; // Already confirmed
+                    }
 
-            order.Status = "Confirmed";
+                    var confirmOrder = new ConfirmOrder
+                    {
+                        OrderId = order.OrderId,
+                        UserId = order.UserId,
+                        CreatedDate = DateTime.UtcNow,
+                        DeliveryStatus = "Pending"
+                    };
 
-            return await _db.SaveChangesAsync() > 0;
+                    await _db.ConfirmOrders.AddAsync(confirmOrder);
+
+                    if (order.Status != "Confirmed")
+                    {
+                        order.Status = "Confirmed";
+                        _db.Orders.Update(order);
+                    }
+
+                    var rowsAffected = await _db.SaveChangesAsync();
+                    await transaction.CommitAsync();
+
+                    return rowsAffected > 0;
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    return false;
+                }
+            });
         }
-
 
         private (IConnection connection, IModel channel) CreateRabbitMqChannel()
         {
