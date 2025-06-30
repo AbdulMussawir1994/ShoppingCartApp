@@ -12,7 +12,7 @@ using ProductsApi.DbContextClass;
 namespace ProductsApi.Migrations
 {
     [DbContext(typeof(ProductDbContext))]
-    [Migration("20250629073334_Init")]
+    [Migration("20250630104126_Init")]
     partial class Init
     {
         /// <inheritdoc />
@@ -84,8 +84,9 @@ namespace ProductsApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("nvarchar(450)");
 
-                    b.Property<long>("GenerateSixDigitNumberId")
-                        .HasColumnType("bigint");
+                    b.Property<string>("GenerateSixDigitNumberId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ProductId")
                         .IsRequired()

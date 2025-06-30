@@ -7,7 +7,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ShippingOrderApi.Migrations
 {
     /// <inheritdoc />
-    public partial class init : Migration
+    public partial class Init : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -37,7 +37,7 @@ namespace ShippingOrderApi.Migrations
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     Consumer = table.Column<string>(type: "text", nullable: false),
                     UserId = table.Column<string>(type: "text", nullable: false),
-                    OrderId = table.Column<int>(type: "integer", nullable: false),
+                    OrderId = table.Column<string>(type: "text", nullable: false),
                     HomeAddress = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
                     City = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     Region = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),

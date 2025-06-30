@@ -56,9 +56,9 @@ namespace SalesOrderApi.Controllers
         }
 
         [HttpGet("{id:int}")]
-        public async Task<ActionResult> GetById(int id, CancellationToken ctx)
+        public async Task<ActionResult> GetById(string id, CancellationToken ctx)
         {
-            if (id <= 0)
+            if (id is null)
                 return BadRequest("Order ID must be greater than 0.");
 
             var response = await _orderService.GetByIdAsync(id, ctx);
@@ -76,7 +76,7 @@ namespace SalesOrderApi.Controllers
         }
 
         [HttpPut("Update/{id:int}")]
-        public async Task<ActionResult> Update(int id, [FromBody] CreateOrderDto model, CancellationToken ctx)
+        public async Task<ActionResult> Update(string id, [FromBody] CreateOrderDto model, CancellationToken ctx)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
@@ -86,9 +86,9 @@ namespace SalesOrderApi.Controllers
         }
 
         [HttpDelete("Delete/{id:int}")]
-        public async Task<ActionResult> Delete(int id, CancellationToken ctx)
+        public async Task<ActionResult> Delete(string id, CancellationToken ctx)
         {
-            if (id <= 0)
+            if (id is null)
                 return BadRequest("Invalid Order ID.");
 
             var response = await _orderService.DeleteAsync(id, ctx);

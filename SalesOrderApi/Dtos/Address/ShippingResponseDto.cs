@@ -2,8 +2,8 @@
 
 public class ShippingResponseDto
 {
-    public string Consumer { get; set; }
-    public string UserId { get; set; }
-    public int OrderId { get; set; }
+    public string Consumer { get; set; } = string.Empty;
+    public string UserId { get; set; } = string.Empty;
+    public string OrderId { get; set; } = string.Empty;
     public AddressDto Address { get; set; } = new AddressDto();
 }

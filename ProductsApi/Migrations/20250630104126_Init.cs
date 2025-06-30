@@ -37,7 +37,7 @@ namespace ProductsApi.Migrations
                 {
                     Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     UserId = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    GenerateSixDigitNumberId = table.Column<long>(type: "bigint", nullable: false),
+                    GenerateSixDigitNumberId = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     TotalOrders = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
                     ProductId = table.Column<string>(type: "varchar(36)", nullable: false)
                 },

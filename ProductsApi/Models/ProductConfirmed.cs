@@ -8,7 +8,7 @@ namespace ProductsApi.Models
         [Key, DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public string Id { get; set; } = Guid.NewGuid().ToString();
         public string UserId { get; set; }
-        public long GenerateSixDigitNumberId { get; set; }
+        public string GenerateSixDigitNumberId { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal TotalOrders { get; set; }

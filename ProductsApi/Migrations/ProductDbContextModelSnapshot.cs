@@ -81,8 +81,9 @@ namespace ProductsApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("nvarchar(450)");
 
-                    b.Property<long>("GenerateSixDigitNumberId")
-                        .HasColumnType("bigint");
+                    b.Property<string>("GenerateSixDigitNumberId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ProductId")
                         .IsRequired()

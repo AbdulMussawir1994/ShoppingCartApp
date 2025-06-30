@@ -12,8 +12,8 @@ using ShippingOrderApi.DbContextClass;
 namespace ShippingOrderApi.Migrations
 {
     [DbContext(typeof(ShippingDbContext))]
-    [Migration("20250629073454_init")]
-    partial class init
+    [Migration("20250630104559_Init")]
+    partial class Init
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -59,8 +59,9 @@ namespace ShippingOrderApi.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
-                    b.Property<int>("OrderId")
-                        .HasColumnType("integer");
+                    b.Property<string>("OrderId")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("Phone")
                         .IsRequired()

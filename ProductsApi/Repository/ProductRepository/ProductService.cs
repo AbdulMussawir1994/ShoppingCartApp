@@ -180,7 +180,7 @@ public class ProductService : IProductService
         // ✅ Prepare RabbitMQ message
         var rabbitMqOrder = new ProductMessageDto
         {
-            OrderId = NumberGenerator.GenerateSixDigitNumberWithLong(),
+            OrderId = NumberGenerator.GenerateSixDigitNumberWithGuid(),
             ProductId = product.ProductId,
             UserId = _contextUser?.UserId ?? "1",
             ProductName = product.ProductName,

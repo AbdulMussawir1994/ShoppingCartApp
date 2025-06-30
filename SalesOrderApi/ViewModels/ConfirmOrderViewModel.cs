@@ -4,12 +4,12 @@ namespace SalesOrderApi.ViewModels;
 
 public class ConfirmOrderViewModel
 {
-    public int OrderId { get; set; }
+    public string OrderId { get; set; } = string.Empty;
     public AddressDto Address { get; set; } = new AddressDto();
 }
 
 
 public class ConfirmProductViewModel
 {
-    public long OrderId { get; set; }
+    public string OrderId { get; set; } = string.Empty;
 }

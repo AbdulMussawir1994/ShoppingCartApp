@@ -13,7 +13,7 @@ namespace SalesOrderApi.Model
         public string DeliveryStatus { get; set; }
 
         [Required]
-        public long OrderId { get; set; }
+        public string OrderId { get; set; }
 
         [ForeignKey(nameof(OrderId))]
         public virtual Order Orders { get; set; } = null!;

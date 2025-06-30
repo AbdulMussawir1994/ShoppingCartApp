@@ -42,7 +42,7 @@ namespace SalesOrderApi.Repository.OrderRepository
                 : MobileResponse<IEnumerable<GetOrderDto>>.SuccessT(Enumerable.Empty<GetOrderDto>(), "No Orders Found");
         }
 
-        public async Task<MobileResponse<GetOrderDto>> GetByIdAsync(int id, CancellationToken ctx)
+        public async Task<MobileResponse<GetOrderDto>> GetByIdAsync(string id, CancellationToken ctx)
         {
             var order = await _db.Orders.AsNoTracking().FirstOrDefaultAsync(o => o.OrderId == id, ctx);
             return order is null
@@ -248,7 +248,7 @@ namespace SalesOrderApi.Repository.OrderRepository
             }
         }
 
-        public async Task<MobileResponse<GetOrderDto>> UpdateAsync(int id, CreateOrderDto model, CancellationToken ctx)
+        public async Task<MobileResponse<GetOrderDto>> UpdateAsync(string id, CreateOrderDto model, CancellationToken ctx)
         {
             var order = await _db.Orders.FirstOrDefaultAsync(o => o.OrderId == id, ctx);
             if (order == null) return MobileResponse<GetOrderDto>.Fail("Order Not Found");
@@ -265,7 +265,7 @@ namespace SalesOrderApi.Repository.OrderRepository
                 : MobileResponse<GetOrderDto>.Fail("Update Failed");
         }
 
-        public async Task<MobileResponse<bool>> DeleteAsync(int id, CancellationToken ctx)
+        public async Task<MobileResponse<bool>> DeleteAsync(string id, CancellationToken ctx)
         {
             var order = await _db.Orders.FirstOrDefaultAsync(o => o.OrderId == id, ctx);
             if (order == null) return MobileResponse<bool>.Fail("Order Not Found");

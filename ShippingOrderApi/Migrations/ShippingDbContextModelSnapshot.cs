@@ -56,8 +56,9 @@ namespace ShippingOrderApi.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
-                    b.Property<int>("OrderId")
-                        .HasColumnType("integer");
+                    b.Property<string>("OrderId")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("Phone")
                         .IsRequired()

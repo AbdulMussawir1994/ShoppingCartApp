@@ -12,7 +12,7 @@ using SalesOrderApi.DbContextClass;
 namespace SalesOrderApi.Migrations
 {
     [DbContext(typeof(OrderDbContext))]
-    [Migration("20250629073418_Init")]
+    [Migration("20250630104538_Init")]
     partial class Init
     {
         /// <inheritdoc />
@@ -40,8 +40,9 @@ namespace SalesOrderApi.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<long>("OrderId")
-                        .HasColumnType("bigint");
+                    b.Property<string>("OrderId")
+                        .IsRequired()
+                        .HasColumnType("varchar(255)");
 
                     b.Property<string>("UserId")
                         .IsRequired()
@@ -57,11 +58,8 @@ namespace SalesOrderApi.Migrations
 
             modelBuilder.Entity("SalesOrderApi.Model.Order", b =>
                 {
-                    b.Property<long>("OrderId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("OrderId"));
+                    b.Property<string>("OrderId")
+                        .HasColumnType("varchar(255)");
 
                     b.Property<string>("Consumer")
                         .IsRequired()

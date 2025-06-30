@@ -14,7 +14,7 @@ public class CreateOrderDto
 
 public class OrderMessageDto
 {
-    public long OrderId { get; set; }
+    public string OrderId { get; set; } = string.Empty;
     public string ProductId { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
     public string ProductName { get; set; }

@@ -3,7 +3,7 @@
 public class ProductMessageDto
 {
     //  public string OrderId { get; set; } = Guid.NewGuid().ToString();
-    public long OrderId { get; set; } = 0;
+    public string OrderId { get; set; } = string.Empty;
     public string ProductId { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
     public string ProductName { get; set; }

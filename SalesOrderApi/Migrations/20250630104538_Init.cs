@@ -19,8 +19,8 @@ namespace SalesOrderApi.Migrations
                 name: "Order",
                 columns: table => new
                 {
-                    OrderId = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("MySql:ValueGenerationStrategy", MySqlValueGenerationStrategy.IdentityColumn),
+                    OrderId = table.Column<string>(type: "varchar(255)", nullable: false)
+                        .Annotation("MySql:CharSet", "utf8mb4"),
                     ProductId = table.Column<string>(type: "varchar(36)", unicode: false, maxLength: 36, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     UserId = table.Column<string>(type: "longtext", nullable: false)
@@ -51,7 +51,8 @@ namespace SalesOrderApi.Migrations
                     CreatedDate = table.Column<DateTime>(type: "datetime(6)", nullable: false),
                     DeliveryStatus = table.Column<string>(type: "longtext", nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
-                    OrderId = table.Column<long>(type: "bigint", nullable: false)
+                    OrderId = table.Column<string>(type: "varchar(255)", nullable: false)
+                        .Annotation("MySql:CharSet", "utf8mb4")
                 },
                 constraints: table =>
                 {
