@@ -15,14 +15,14 @@ public class ProductService : IProductService
     private readonly ProductDbContext _db;
     private readonly IUserService _contextUser;
     private readonly IRabbitMqService _rabbitMqService;
-    private readonly SnowflakeIdGenerator _idGenerator;
+    // private readonly SnowflakeIdGenerator _idGenerator;
 
-    public ProductService(ProductDbContext db, IUserService contextUser, IRabbitMqService rabbitMqService, SnowflakeIdGenerator idGenerator)
+    public ProductService(ProductDbContext db, IUserService contextUser, IRabbitMqService rabbitMqService)
     {
         _db = db;
         _contextUser = contextUser;
         _rabbitMqService = rabbitMqService;
-        _idGenerator = idGenerator;
+        // _idGenerator = idGenerator;
     }
 
     public async Task<MobileResponse<IEnumerable<GetProductDto>>> GetAllAsync(CancellationToken ctx)
