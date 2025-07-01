@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SalesOrderApi", "SalesOrder
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShippingOrderApi", "ShippingOrderApi\ShippingOrderApi.csproj", "{CDED133A-7C24-40D9-8157-2F373B11C317}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestingMicroservices", "TestingMicroservices\TestingMicroservices.csproj", "{073FAFE0-4A15-4A32-8362-3FCBF0EA9ACF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{CDED133A-7C24-40D9-8157-2F373B11C317}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CDED133A-7C24-40D9-8157-2F373B11C317}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CDED133A-7C24-40D9-8157-2F373B11C317}.Release|Any CPU.Build.0 = Release|Any CPU
+		{073FAFE0-4A15-4A32-8362-3FCBF0EA9ACF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{073FAFE0-4A15-4A32-8362-3FCBF0EA9ACF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{073FAFE0-4A15-4A32-8362-3FCBF0EA9ACF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{073FAFE0-4A15-4A32-8362-3FCBF0EA9ACF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
