@@ -21,6 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="..\AuthenticationApp\AuthenticationApp.csproj" />
     <ProjectReference Include="..\ProductsApi\ProductsApi.csproj" />
+    <ProjectReference Include="..\SalesOrderApi\SalesOrderApi.csproj" />
+    <ProjectReference Include="..\ShippingOrderApi\ShippingOrderApi.csproj" />
   </ItemGroup>
 
   <ItemGroup>
