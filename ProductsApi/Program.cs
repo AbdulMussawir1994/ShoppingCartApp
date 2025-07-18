@@ -36,6 +36,13 @@ builder.Services.AddDbContextPool<ProductDbContext>(options =>
     .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking)
 );
 
+// 🔹 Redis Caching
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = configuration.GetSection("RedisConnection").GetValue<string>("LocalHost");
+    options.InstanceName = configuration.GetSection("RedisConnection").GetValue<string>("InstanceName");
+});
+
 // ✅ JSON Serialization Config (Performance + Compatibility)
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

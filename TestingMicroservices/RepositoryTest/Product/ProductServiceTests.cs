@@ -1,5 +1,7 @@
 ﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Configuration;
 using Moq;
 using ProductsApi.DbContextClass;
 using ProductsApi.Dtos;
@@ -14,6 +16,8 @@ public class ProductServiceTests
     private readonly ProductDbContext _dbContext;
     private readonly Mock<IUserService> _mockUserService;
     private readonly Mock<IRabbitMqService> _mockRabbitMqService;
+    private readonly Mock<IDistributedCache> _dis;
+    private readonly Mock<IConfiguration> _config;
     //  private readonly Mock<SnowflakeIdGenerator> _mockSnake;
     private readonly ProductService _service;
 
@@ -26,9 +30,11 @@ public class ProductServiceTests
         _dbContext = new ProductDbContext(options);
         _mockUserService = new Mock<IUserService>();
         _mockRabbitMqService = new Mock<IRabbitMqService>();
+        _dis = new Mock<IDistributedCache>();
+        _config = new Mock<IConfiguration>();
         //_mockSnake = new Mock<SnowflakeIdGenerator>();
 
-        _service = new ProductService(_dbContext, _mockUserService.Object, _mockRabbitMqService.Object);
+        _service = new ProductService(_dbContext, _mockUserService.Object, _mockRabbitMqService.Object, _dis.Object, _config.Object);
     }
 
     [Fact]

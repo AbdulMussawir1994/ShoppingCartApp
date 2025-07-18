@@ -1,5 +1,6 @@
 ﻿using Mapster;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using ProductsApi.DbContextClass;
 using ProductsApi.Dtos;
 using ProductsApi.Helpers;
@@ -7,6 +8,8 @@ using ProductsApi.Models;
 using ProductsApi.Repository.RabbitMqProducer;
 using ProductsApi.Repository.UserContext;
 using ProductsApi.Utilities;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ProductsApi.Repository.ProductRepository;
 
@@ -15,31 +18,73 @@ public class ProductService : IProductService
     private readonly ProductDbContext _db;
     private readonly IUserService _contextUser;
     private readonly IRabbitMqService _rabbitMqService;
+    private readonly IDistributedCache _distributedCache;
+    private readonly IConfiguration _config;
     // private readonly SnowflakeIdGenerator _idGenerator;
 
-    public ProductService(ProductDbContext db, IUserService contextUser, IRabbitMqService rabbitMqService)
+    public ProductService(ProductDbContext db, IUserService contextUser, IRabbitMqService rabbitMqService, IDistributedCache distributedCache, IConfiguration config)
     {
         _db = db;
         _contextUser = contextUser;
         _rabbitMqService = rabbitMqService;
+        _distributedCache = distributedCache;
+        _config = config;
         // _idGenerator = idGenerator;
     }
 
     public async Task<MobileResponse<IEnumerable<GetProductDto>>> GetAllAsync(CancellationToken ctx)
     {
+        const string defaultMessage = "Products fetched successfully";
+
         try
         {
-            var products = await _db.Products.AsNoTracking().ToListAsync(ctx);
+            // Get Redis cache key
+            var redisKey = _config.GetValue<string>("RedisConnection:KeyName");
+            if (string.IsNullOrWhiteSpace(redisKey))
+                return MobileResponse<IEnumerable<GetProductDto>>.Fail("Redis cache key is not configured.");
+
+            // Try get from cache
+            var cachedData = await _distributedCache.GetStringAsync(redisKey, ctx);
+            if (!string.IsNullOrWhiteSpace(cachedData))
+            {
+                var cachedResult = JsonSerializer.Deserialize<IEnumerable<GetProductDto>>(cachedData, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                return MobileResponse<IEnumerable<GetProductDto>>.Success(cachedResult!, defaultMessage);
+            }
+
+            // Fetch from DB
+            var products = await _db.Products
+                .AsNoTracking()
+                .ToListAsync(ctx);
 
             if (!products.Any())
-                return MobileResponse<IEnumerable<GetProductDto>>.EmptySuccess(Enumerable.Empty<GetProductDto>(), "No Products Found");
+                return MobileResponse<IEnumerable<GetProductDto>>.EmptySuccess(Enumerable.Empty<GetProductDto>(), "No products found");
 
+            // Map and serialize only once
             var mapped = products.Adapt<IEnumerable<GetProductDto>>();
-            return MobileResponse<IEnumerable<GetProductDto>>.Success(mapped, "Products Fetched Successfully");
+            var serialized = JsonSerializer.Serialize(mapped, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                ReferenceHandler = ReferenceHandler.IgnoreCycles
+            });
+
+            // Set cache with sliding and absolute expiration
+            var cacheOptions = new DistributedCacheEntryOptions
+            {
+                SlidingExpiration = TimeSpan.FromMinutes(10),
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(6)
+            };
+
+            await _distributedCache.SetStringAsync(redisKey, serialized, cacheOptions, ctx);
+
+            return MobileResponse<IEnumerable<GetProductDto>>.Success(mapped, defaultMessage);
         }
         catch (Exception ex)
         {
-            return MobileResponse<IEnumerable<GetProductDto>>.Fail($"An error occurred: {ex.Message}");
+            return MobileResponse<IEnumerable<GetProductDto>>.Fail("An unexpected error occurred. Please try again later.");
         }
     }
 
