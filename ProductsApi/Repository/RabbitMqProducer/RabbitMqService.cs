@@ -10,7 +10,6 @@ public class RabbitMqService : IRabbitMqService, IDisposable
 {
     private readonly IConnection _connection;
     private readonly IModel _channel;
-    private readonly JsonSerializerOptions _serializerOptions;
 
     public RabbitMqService(IOptions<RabbitMqSettings> options)
     {
